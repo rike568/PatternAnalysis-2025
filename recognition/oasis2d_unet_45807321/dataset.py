@@ -146,3 +146,21 @@ class Oasis2DSegDataset(Dataset):
         mask_t = _mask_to_tensor(mask)
         img_t = self._normalize(img_t)
         return {"image": img_t, "mask": mask_t, "image_path": str(img_path), "mask_path": str(mask_path)}
+
+def make_loaders(
+    data_root: Path = DEFAULT_DATA_ROOT,
+    batch_size: int = DEFAULT_BATCH_SIZE,
+    num_workers: int = DEFAULT_NUM_WORKERS,
+    normalize_meanstd: Optional[Tuple[float, float]] = DEFAULT_NORMALIZE_MEANSTD,
+):
+    train_ds = Oasis2DSegDataset(data_root, "train", normalize_meanstd, train_augment=True)
+    val_ds   = Oasis2DSegDataset(data_root, "validate", normalize_meanstd)
+    test_ds  = Oasis2DSegDataset(data_root, "test", normalize_meanstd)
+
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,
+                              num_workers=num_workers, pin_memory=True)
+    val_loader   = DataLoader(val_ds,   batch_size=batch_size, shuffle=False,
+                              num_workers=num_workers, pin_memory=True)
+    test_loader  = DataLoader(test_ds,  batch_size=batch_size, shuffle=False,
+                              num_workers=num_workers, pin_memory=True)
+    return train_loader, val_loader, test_loader
