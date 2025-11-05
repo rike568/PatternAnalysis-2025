@@ -1,5 +1,3 @@
-torch==2.7.1+cu118
-torchvision==2.7.1+cu118
-torchaudio==0.22.1+cu118
--f https://download.pytorch.org/whl/cu118
-
+torch
+torchvision
+torchaudio
