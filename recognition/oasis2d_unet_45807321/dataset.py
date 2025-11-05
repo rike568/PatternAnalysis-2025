@@ -1,4 +1,5 @@
-# Scaffold for OASIS 2D dataloader (structure + imports + defaults)
+# dataset.py
+# Scaffold + canonical key for pairing case_/seg_ filenames
 
 from __future__ import annotations
 import os
@@ -16,7 +17,23 @@ from PIL import Image
 # ---------------------------
 THIS_DIR = Path(__file__).resolve().parent
 DEFAULT_DATA_ROOT = THIS_DIR / "OASIS"
-DEFAULT_IMG_SIZE = None  # images are already 256x256
+DEFAULT_IMG_SIZE = None
 DEFAULT_BATCH_SIZE = 8
 DEFAULT_NUM_WORKERS = max(os.cpu_count() - 1, 1) if os.cpu_count() else 4
 DEFAULT_NORMALIZE_MEANSTD = (0.5, 0.5)
+
+# ---------------------------
+# Simple helpers
+# ---------------------------
+
+def _canonical_key(p: Path) -> str:
+    """
+    Map 'case_001_slice_0.png' and 'seg_001-slice_0.png' -> '001_slice_0'
+    """
+    name = p.stem.lower()
+    if name.startswith("case_"):
+        name = name[len("case_"):]
+    elif name.startswith("seg_"):
+        name = name[len("seg_"):]
+    name = name.replace("-", "_")
+    return name
