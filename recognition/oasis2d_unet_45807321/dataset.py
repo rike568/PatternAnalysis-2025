@@ -164,3 +164,11 @@ def make_loaders(
     test_loader  = DataLoader(test_ds,  batch_size=batch_size, shuffle=False,
                               num_workers=num_workers, pin_memory=True)
     return train_loader, val_loader, test_loader
+
+if __name__ == "__main__":
+    print(f"[OASIS] Using data_root: {DEFAULT_DATA_ROOT}")
+    tl, vl, te = make_loaders()
+    batch = next(iter(tl))
+    x, y = batch["image"], batch["mask"]
+    print(f"Train batch image shape: {tuple(x.shape)}, dtype={x.dtype}, range=({x.min():.3f},{x.max():.3f})")
+    print(f"Train batch mask  shape: {tuple(y.shape)}, dtype={y.dtype}, labels(sample0)={torch.unique(y[0]).tolist()}")
