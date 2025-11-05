@@ -5,7 +5,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-__all__ = ["conv_block", "up_block", "ImprovedUNet"]
+__all__ = ["conv_block", "up_block", "ImprovedUNet", "init_kaiming_normal_"]
 
 def conv_block(in_ch: int, out_ch: int, p_drop: float = 0.0) -> nn.Sequential:
     """
@@ -27,6 +27,18 @@ def up_block(in_ch: int, out_ch: int) -> nn.ConvTranspose2d:
     """
     return nn.ConvTranspose2d(in_ch, out_ch, 2, stride=2)
 
+def init_kaiming_normal_(m: nn.Module) -> None:
+    """
+    The initialization for conv/convtranspose; BN gamma=1, beta=0.
+    """
+    if isinstance(m, (nn.Conv2d, nn.ConvTranspose2d)):
+        nn.init.kaiming_normal_(m.weight, nonlinearity="relu")
+        if getattr(m, "bias", None) is not None:
+            nn.init.zeros_(m.bias)
+    elif isinstance(m, nn.BatchNorm2d):
+        nn.init.ones_(m.weight)
+        nn.init.zeros_(m.bias)
+
 class ImprovedUNet(nn.Module):
     """
     Improved U-Net (2D):
@@ -47,6 +59,8 @@ class ImprovedUNet(nn.Module):
         self.up2  = up_block(base*4, base*2);  self.dec2 = conv_block(base*4, base*2, p_drop)
         self.up1  = up_block(base*2, base);    self.dec1 = conv_block(base*2, base, p_drop)
         self.head = nn.Conv2d(base, num_classes, 1)
+
+        self.apply(init_kaiming_normal_)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Encoder
