@@ -72,3 +72,60 @@ class RandomAugment2D:
             img = F.rotate(img, angle, interpolation=F.InterpolationMode.BILINEAR, fill=0)
             mask = F.rotate(mask, angle, interpolation=F.InterpolationMode.NEAREST, fill=0)
         return img, mask
+    
+class Oasis2DSegDataset(Dataset):
+    """
+    Expects inside ./OASIS:
+        keras_png_slices_train/
+        keras_png_slices_validate/
+        keras_png_slices_test/
+        keras_png_slices_seg_train/
+        keras_png_slices_seg_validate/
+        keras_png_slices_seg_test/
+    """
+    def __init__(
+        self,
+        data_root: Path = DEFAULT_DATA_ROOT,
+        split: str = "train",
+        normalize_meanstd: Optional[Tuple[float, float]] = DEFAULT_NORMALIZE_MEANSTD,
+        train_augment: bool = False,
+        max_rot_deg: float = 10.0,
+    ):
+        super().__init__()
+        self.data_root = Path(data_root)
+        assert split in {"train", "validate", "test"}
+        self.split = split
+        self.normalize_meanstd = normalize_meanstd
+
+        img_dir = self.data_root / f"keras_png_slices_{'validate' if split=='validate' else split}"
+        seg_dir = self.data_root / f"keras_png_slices_seg_{'validate' if split=='validate' else split}"
+        if not (img_dir.exists() and seg_dir.exists()):
+            raise FileNotFoundError(f"Missing expected OASIS folders:\n{img_dir}\n{seg_dir}")
+
+        images = sorted([p for p in img_dir.iterdir() if p.is_file()])
+        masks  = sorted([p for p in seg_dir.iterdir() if p.is_file()])
+        mask_index: Dict[str, Path] = { _canonical_key(m): m for m in masks }
+
+        pairs: List[Tuple[Path, Path]] = []
+        missing: List[str] = []
+        for ip in images:
+            mp = mask_index.get(_canonical_key(ip))
+            if mp is not None:
+                pairs.append((ip, mp))
+            else:
+                missing.append(ip.name)
+
+        if not pairs:
+            raise RuntimeError(
+                "No image/mask pairs found. Check prefixes or directory names.\n"
+                f"Example image: {images[0].name if images else 'None'}\n"
+                f"Example mask : {masks[0].name if masks else 'None'}"
+            )
+        if missing:
+            print(f"[OASIS] {len(missing)} images had no mask match (showing first 5): {missing[:5]}")
+
+        self.pairs = pairs
+        self.augment = RandomAugment2D(max_rot_deg=max_rot_deg) if train_augment and split == "train" else None
+
+    def __len__(self):
+        return len(self.pairs)
