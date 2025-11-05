@@ -129,3 +129,20 @@ class Oasis2DSegDataset(Dataset):
 
     def __len__(self):
         return len(self.pairs)
+    
+    def _normalize(self, x: torch.Tensor) -> torch.Tensor:
+        if self.normalize_meanstd is None:  # skip
+            return x
+        mean, std = self.normalize_meanstd
+        return (x - mean) / (std + 1e-8)
+
+    def __getitem__(self, idx: int):
+        img_path, mask_path = self.pairs[idx]
+        img = _pil_grayscale(img_path)
+        mask = _pil_grayscale(mask_path)
+        if self.augment:
+            img, mask = self.augment(img, mask)
+        img_t = _to_tensor01(img)
+        mask_t = _mask_to_tensor(mask)
+        img_t = self._normalize(img_t)
+        return {"image": img_t, "mask": mask_t, "image_path": str(img_path), "mask_path": str(mask_path)}
