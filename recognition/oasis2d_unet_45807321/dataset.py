@@ -3,8 +3,9 @@
 
 from __future__ import annotations
 import os
+import random
 from pathlib import Path
-from typing import Optional, Tuple, Dict, List
+from typing import List, Optional, Tuple, Dict
 
 import numpy as np
 import torch
@@ -53,3 +54,21 @@ def _to_tensor01(img_pil: Image.Image) -> torch.Tensor:
 def _mask_to_tensor(mask_pil: Image.Image) -> torch.Tensor:
     arr = np.asarray(mask_pil, dtype=np.int64)
     return torch.from_numpy(arr)
+
+class RandomAugment2D:
+    """Apply same random flip/rotation to image and mask."""
+    def __init__(self, max_rot_deg: float = 10.0, p_hflip: float = 0.5, p_vflip: float = 0.5):
+        self.max_rot_deg = max_rot_deg
+        self.p_hflip = p_hflip
+        self.p_vflip = p_vflip
+
+    def __call__(self, img: Image.Image, mask: Image.Image):
+        if random.random() < self.p_hflip:
+            img = F.hflip(img); mask = F.hflip(mask)
+        if random.random() < self.p_vflip:
+            img = F.vflip(img); mask = F.vflip(mask)
+        if self.max_rot_deg > 0:
+            angle = random.uniform(-self.max_rot_deg, self.max_rot_deg)
+            img = F.rotate(img, angle, interpolation=F.InterpolationMode.BILINEAR, fill=0)
+            mask = F.rotate(mask, angle, interpolation=F.InterpolationMode.NEAREST, fill=0)
+        return img, mask
