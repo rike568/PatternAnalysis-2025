@@ -88,3 +88,19 @@ class ImprovedUNet(nn.Module):
         d1 = self.dec1(d1)
 
         return self.head(d1)  # logits [B,C,H,W]
+    
+def create_model(in_channels: int = 1, num_classes: int = 4, base: int = 64, p_drop: float = 0.0) -> ImprovedUNet:
+    """Factory for quick construction (nice for train.py configs)."""
+    return ImprovedUNet(in_channels=in_channels, num_classes=num_classes, base=base, p_drop=p_drop)
+
+def count_params(model: nn.Module) -> int:
+    """Number of trainable parameters (for README)."""
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+if __name__ == "__main__":
+    # Sanity check: build model and print parameter count
+    net = create_model(in_channels=1, num_classes=4, base=64, p_drop=0.1)
+    x = torch.randn(2, 1, 256, 256)
+    y = net(x)
+    print("Output:", tuple(y.shape))      # expect (2,4,256,256)
+    print("Params:", count_params(net))
