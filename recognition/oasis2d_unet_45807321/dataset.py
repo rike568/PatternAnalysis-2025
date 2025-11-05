@@ -37,3 +37,19 @@ def _canonical_key(p: Path) -> str:
         name = name[len("seg_"):]
     name = name.replace("-", "_")
     return name
+
+def _pil_grayscale(path: Path) -> Image.Image:
+    img = Image.open(path)
+    if img.mode != "L":
+        img = img.convert("L")
+    return img
+
+def _to_tensor01(img_pil: Image.Image) -> torch.Tensor:
+    arr = np.asarray(img_pil, dtype=np.float32)[None, ...]  # [1,H,W]
+    mn, mx = arr.min(), arr.max()
+    arr = (arr - mn) / (mx - mn) if mx > mn else arr * 0.0
+    return torch.from_numpy(arr)
+
+def _mask_to_tensor(mask_pil: Image.Image) -> torch.Tensor:
+    arr = np.asarray(mask_pil, dtype=np.int64)
+    return torch.from_numpy(arr)
