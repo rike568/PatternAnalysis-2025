@@ -125,3 +125,21 @@ class CEDiceLoss(torch.nn.Module):
         y_1h = labels_to_onehot(y_true, num_classes=self.num_classes)
         loss_dice = dice_loss_from_logits(logits, y_1h)
         return self.alpha_ce * loss_ce + self.alpha_dice * loss_dice
+
+# ---------------------------
+# Running meters
+# ---------------------------
+@dataclass
+class AvgMeter:
+    total: float = 0.0
+    count: int = 0
+
+    def update(self, val: float, n: int = 1) -> None:
+        self.total += float(val) * n
+        self.count += n
+
+    @property
+    def avg(self) -> float:
+        return self.total / max(self.count, 1)
+    
+    
