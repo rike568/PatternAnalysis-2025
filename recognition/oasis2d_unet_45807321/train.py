@@ -184,10 +184,113 @@ def plot_curves(history: List[Dict], png_path: Path, num_classes: int) -> None:
 # Main
 # ---------------------------
 
-
 def main() -> None:
     print("==> OASIS 2D — Improved U-Net training")
-    # (Implementation to be added)
+
+    # Repro
+    set_seed(SEED)
+
+    # Device & AMP
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    scaler = torch.amp.GradScaler("cuda") if (AMP and device.type == "cuda") else None
+    print(f"Device: {device} | AMP: {scaler is not None}")
+
+    # Data
+    train_loader, val_loader, test_loader = make_loaders(
+        batch_size=DEFAULT_BATCH_SIZE,  # from dataset.py
+        # num_workers=1,  # uncomment on Rangpur to avoid worker warnings
+    )
+    print(
+        f"Train/Val/Test batches: {len(train_loader)}/{len(val_loader)}/{len(test_loader)}"
+    )
+
+    # Model
+    model = create_model(
+        in_channels=IN_CHANNELS,
+        num_classes=NUM_CLASSES,
+        p_drop=P_DROP,
+    ).to(device)
+    print(f"Model params: {count_params(model):,}")
+
+    # Loss, Optim, Scheduler
+    criterion = CEDiceLoss(num_classes=NUM_CLASSES, alpha_ce=0.5, alpha_dice=0.5)
+    optimizer = optim.Adam(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode="min", factor=0.5, patience=3
+    )
+
+    best_val = float("inf")
+
+    # --- History for plots/CSV ---
+    history: List[Dict] = []
+
+    for epoch in range(1, EPOCHS + 1):
+        train_loss = train_one_epoch(
+            model, train_loader, optimizer, criterion, device, scaler, epoch
+        )
+        val_loss, dice_c = validate(model, val_loader, criterion, device)
+
+        # Logging
+        dice_str = " ".join([f"C{ci}:{d.item():.3f}" for ci, d in enumerate(dice_c)])
+        print(
+            f"[Epoch {epoch:03d}] train_loss={train_loss:.4f} | val_loss={val_loss:.4f} | dice({NUM_CLASSES}): {dice_str}"
+        )
+
+        # Record LR (first param group)
+        curr_lr = next(iter(optimizer.param_groups))["lr"]
+
+        # Save to history
+        rec = {
+            "epoch": epoch,
+            "train_loss": float(train_loss),
+            "val_loss": float(val_loss),
+            "lr": float(curr_lr),
+        }
+        for ci, d in enumerate(dice_c):
+            rec[f"dice_c{ci}"] = float(d.item())
+        history.append(rec)
+
+        # Scheduler on val loss
+        scheduler.step(val_loss)
+
+        # Checkpoints
+        save_checkpoint(
+            CKPT_LAST.as_posix(), model, optimizer, epoch, extra={"val_loss": val_loss}
+        )
+        if val_loss < best_val:
+            best_val = val_loss
+            save_checkpoint(
+                CKPT_BEST.as_posix(),
+                model,
+                optimizer,
+                epoch,
+                extra={"val_loss": val_loss},
+            )
+            print(f"  ↳ New best! Saved to {CKPT_BEST}")
+
+        # Update plots & CSV each epoch (so you can watch mid-run)
+        write_history_csv(history, HIST_CSV)
+        plot_curves(history, CURVES_PNG, NUM_CLASSES)
+
+    # Final test evaluation (optional, after best/last)
+    print("==> Evaluating on test split (using last epoch weights)...")
+    test_loss, test_dice_c = validate(model, test_loader, criterion, device)
+    test_dice_str = " ".join(
+        [f"C{ci}:{d.item():.3f}" for ci, d in enumerate(test_dice_c)]
+    )
+    print(f"[Test] loss={test_loss:.4f} | dice({NUM_CLASSES}): {test_dice_str}")
+
+    # Append final test row to CSV (without plotting new points)
+    final_rec = {
+        "epoch": EPOCHS + 1,
+        "train_loss": float("nan"),
+        "val_loss": float(test_loss),
+        "lr": float(curr_lr),
+    }
+    for ci, d in enumerate(test_dice_c):
+        final_rec[f"dice_c{ci}"] = float(d.item())
+    history.append(final_rec)
+    write_history_csv(history, HIST_CSV)  # overwrite with final row included
 
 
 if __name__ == "__main__":
