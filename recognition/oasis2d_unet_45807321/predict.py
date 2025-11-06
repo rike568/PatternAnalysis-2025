@@ -131,6 +131,10 @@ def main() -> None:
 
     _ensure_dir(PRED_DIR)
 
+    # Gather a few samples for visualisation
+    vis_count = 0
+    saved_paths: List[Path] = []  # <-- ADD THIS
+
     for batch_idx, batch in enumerate(test_loader):
         batch = to_device(batch, device)
         x, y_raw = (
@@ -144,7 +148,42 @@ def main() -> None:
         dice_sum += dice_c
         n_batches += 1
 
-        # (Visualisation logic to be added here)
+        # --- ADD THIS BLOCK ---
+        # Visualise/save a few samples from the first batches
+        if vis_count < N_VIS:
+            # How many to take from this batch
+            take = min(N_VIS - vis_count, x.size(0))
+            for i in range(take):
+                img_u8 = tensor_to_uint8_img(x[i])  # [H,W] uint8
+                pred_ids = (
+                    logits[i].argmax(dim=0).detach().cpu().numpy().astype(np.int32)
+                )  # [H,W]
+                gt_ids = y_ids[i].detach().cpu().numpy().astype(np.int32)
+
+                pred_rgb = colorize(pred_ids)  # [H,W,3]
+                gt_rgb = colorize(gt_ids)
+                over_rgb = overlay(img_u8, pred_rgb, alpha=0.45)
+
+                # Save individual panels
+                base = Path(f"sample_{batch_idx:03d}_{i:02d}")
+                paths = {
+                    "input": PRED_DIR / f"{base}_input.png",
+                    "gt": PRED_DIR / f"{base}_gt.png",
+                    "pred": PRED_DIR / f"{base}_pred.png",
+                    "over": PRED_DIR / f"{base}_overlay.png",
+                }
+                plt.imsave(paths["input"], img_u8, cmap="gray")
+                plt.imsave(paths["gt"], gt_rgb)
+                plt.imsave(paths["pred"], pred_rgb)
+                plt.imsave(paths["over"], over_rgb)
+                saved_paths.append(paths["over"])
+                vis_count += 1
+
+        # Early exit if we already have enough visualisations
+        if vis_count >= N_VIS:
+            # still continue metric accumulation for full test set
+            pass
+        # --- END OF BLOCK ---
 
     # Report metrics
     dice_mean_c = (dice_sum / max(n_batches, 1)).detach().cpu().numpy()
