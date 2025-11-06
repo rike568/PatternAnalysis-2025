@@ -56,7 +56,6 @@ LOG_EVERY = 50  # steps
 # Train / Val loops
 # ---------------------------
 
-
 def train_one_epoch(
     model: nn.Module,
     loader,
@@ -130,6 +129,56 @@ def validate(
 
     dice_mean_c = dice_sum / max(n_batches, 1)  # [C]
     return loss_meter.avg, dice_mean_c  # val_loss, per-class dice
+
+# ---------------------------
+# Plotting / Logging helpers
+# ---------------------------
+
+
+def write_history_csv(rows: List[Dict], path: Path) -> None:
+    if not rows:
+        return
+    keys = list(rows[0].keys())
+    with open(path, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=keys)
+        w.writeheader()
+        for r in rows:
+            w.writerow(r)
+
+
+def plot_curves(history: List[Dict], png_path: Path, num_classes: int) -> None:
+    # history: list of dicts with keys epoch, train_loss, val_loss, dice_c0..c{C-1}
+    epochs = [h["epoch"] for h in history]
+    tr = [h["train_loss"] for h in history]
+    vl = [h["val_loss"] for h in history]
+    dice_per_c = []
+    for c in range(num_classes):
+        dice_per_c.append([h[f"dice_c{c}"] for h in history])
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+
+    # Loss curves
+    axes[0].plot(epochs, tr, label="train_loss")
+    axes[0].plot(epochs, vl, label="val_loss")
+    axes[0].set_xlabel("Epoch")
+    axes[0].set_ylabel("Loss")
+    axes[0].set_title("Loss Curves")
+    axes[0].legend()
+    axes[0].grid(True, alpha=0.3)
+
+    # Dice curves per class
+    for c in range(num_classes):
+        axes[1].plot(epochs, dice_per_c[c], label=f"Dice C{c}")
+    axes[1].set_xlabel("Epoch")
+    axes[1].set_ylabel("Dice")
+    axes[1].set_title("Per-class Dice (Validation)")
+    axes[1].set_ylim(0.0, 1.0)
+    axes[1].legend()
+    axes[1].grid(True, alpha=0.3)
+
+    fig.tight_layout()
+    fig.savefig(png_path, dpi=160)
+    plt.close(fig)
 
 # ---------------------------
 # Main
