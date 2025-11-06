@@ -24,7 +24,7 @@ THIS_DIR = Path(__file__).resolve().parent
 DEFAULT_DATA_ROOT = THIS_DIR / "OASIS"  # expects six OASIS subfolders under this
 DEFAULT_IMG_SIZE = None  # images are already 256x256; no resize needed
 DEFAULT_BATCH_SIZE = 8
-DEFAULT_NUM_WORKERS = max(os.cpu_count() - 1, 1) if os.cpu_count() else 4
+DEFAULT_NUM_WORKERS = 1
 DEFAULT_NORMALIZE_MEANSTD = (0.5, 0.5)  # normalize to roughly N(0,1): (x-0.5)/0.5
 
 # ---------------------------

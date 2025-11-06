@@ -1,12 +1,19 @@
 # modules.py
-# Improved U-Net (2D) for OASIS slices (256×256, 1-channel).
+# Improved U-Net (2D) for HipMRI slices (256x256, 1-channel).
 # Returns per-pixel logits [B, C, H, W] (no softmax in the model).
 
 from __future__ import annotations
 import torch
 import torch.nn as nn
 
-__all__ = ["conv_block", "up_block", "ImprovedUNet", "init_kaiming_normal_", "create_model", "count_params"]
+__all__ = [
+    "conv_block",
+    "up_block",
+    "ImprovedUNet",
+    "init_kaiming_normal_",
+    "create_model",
+    "count_params",
+]
 
 
 def conv_block(in_ch: int, out_ch: int, p_drop: float = 0.0) -> nn.Sequential:
@@ -18,11 +25,9 @@ def conv_block(in_ch: int, out_ch: int, p_drop: float = 0.0) -> nn.Sequential:
         nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1, bias=False),
         nn.BatchNorm2d(out_ch),
         nn.ReLU(inplace=True),
-
         nn.Conv2d(out_ch, out_ch, kernel_size=3, padding=1, bias=False),
         nn.BatchNorm2d(out_ch),
         nn.ReLU(inplace=True),
-
         nn.Dropout2d(p=p_drop) if p_drop > 0 else nn.Identity(),
     )
 
@@ -49,6 +54,7 @@ def init_kaiming_normal_(m: nn.Module) -> None:
 class ImprovedUNet(nn.Module):
     """
     U-Net-style encoder–decoder with skip connections.
+    MODIFIED: Uses fixed channel sizes (32, 64, 128, 256, 512).
 
     Architecture:
       - Encoder: 4 levels (ConvBlock ×2 per level) with MaxPool downsampling
@@ -57,54 +63,60 @@ class ImprovedUNet(nn.Module):
       - Head: 1×1 Conv2d to produce logits for num_classes
 
     Notes:
-      - Designed for 1-channel 256×256 inputs (divisible by 16 → no size drift).
+      - Designed for 1-channel 256x256 inputs (divisible by 16 → no size drift).
       - Output logits are returned without activation; apply softmax in loss/metrics if needed.
     """
-    def __init__(self, in_channels: int = 1, num_classes: int = 4, base: int = 64, p_drop: float = 0.0):
+
+    def __init__(
+        self,
+        in_channels: int = 1,
+        num_classes: int = 4,
+        p_drop: float = 0.0,
+    ):
         super().__init__()
 
-        # Encoder
-        self.enc1 = conv_block(in_channels, base, p_drop)
+        # Encoder - MODIFIED to use fixed channels
+        self.enc1 = conv_block(in_channels, 32, p_drop)
         self.pool1 = nn.MaxPool2d(2)
 
-        self.enc2 = conv_block(base, base * 2, p_drop)
+        self.enc2 = conv_block(32, 64, p_drop)
         self.pool2 = nn.MaxPool2d(2)
 
-        self.enc3 = conv_block(base * 2, base * 4, p_drop)
+        self.enc3 = conv_block(64, 128, p_drop)
         self.pool3 = nn.MaxPool2d(2)
 
-        self.enc4 = conv_block(base * 4, base * 8, p_drop)
+        self.enc4 = conv_block(128, 256, p_drop)
         self.pool4 = nn.MaxPool2d(2)
 
-        # Bottleneck
-        self.bott = conv_block(base * 8, base * 16, p_drop)
+        # Bottleneck - MODIFIED to use fixed channels
+        self.bott = conv_block(256, 512, p_drop)
 
-        # Decoder
-        self.up4 = up_block(base * 16, base * 8)
-        self.dec4 = conv_block(base * 16, base * 8, p_drop)
+        # Decoder - MODIFIED to use fixed channels
+        self.up4 = up_block(512, 256)
+        self.dec4 = conv_block(512, 256, p_drop) # 256 (from up4) + 256 (from enc4)
 
-        self.up3 = up_block(base * 8, base * 4)
-        self.dec3 = conv_block(base * 8, base * 4, p_drop)
+        self.up3 = up_block(256, 128)
+        self.dec3 = conv_block(256, 128, p_drop) # 128 (from up3) + 128 (from enc3)
 
-        self.up2 = up_block(base * 4, base * 2)
-        self.dec2 = conv_block(base * 4, base * 2, p_drop)
+        self.up2 = up_block(128, 64)
+        self.dec2 = conv_block(128, 64, p_drop) # 64 (from up2) + 64 (from enc2)
 
-        self.up1 = up_block(base * 2, base)
-        self.dec1 = conv_block(base * 2, base, p_drop)
+        self.up1 = up_block(64, 32)
+        self.dec1 = conv_block(64, 32, p_drop) # 32 (from up1) + 32 (from enc1)
 
-        # Per-pixel logits
-        self.head = nn.Conv2d(base, num_classes, kernel_size=1)
+        # Per-pixel logits - MODIFIED
+        self.head = nn.Conv2d(32, num_classes, kernel_size=1)
 
         # Weight init
         self.apply(init_kaiming_normal_)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Encoder
-        e1 = self.enc1(x)                    # H,W
-        e2 = self.enc2(self.pool1(e1))       # H/2,W/2
-        e3 = self.enc3(self.pool2(e2))       # H/4,W/4
-        e4 = self.enc4(self.pool3(e3))       # H/8,W/8
-        b  = self.bott(self.pool4(e4))       # H/16,W/16
+        e1 = self.enc1(x)  # H,W
+        e2 = self.enc2(self.pool1(e1))  # H/2,W/2
+        e3 = self.enc3(self.pool2(e2))  # H/4,W/4
+        e4 = self.enc4(self.pool3(e3))  # H/8,W/8
+        b = self.bott(self.pool4(e4))  # H/16,W/16  <- Bottleneck shape changes
 
         # Decoder + skip connections
         d4 = self.up4(b)
@@ -122,9 +134,13 @@ class ImprovedUNet(nn.Module):
         return self.head(d1)  # logits [B, C, H, W]
 
 
-def create_model(in_channels: int = 1, num_classes: int = 4, base: int = 64, p_drop: float = 0.0) -> ImprovedUNet:
+def create_model(
+    in_channels: int = 1, num_classes: int = 4, p_drop: float = 0.0
+) -> ImprovedUNet: # MODIFIED: Removed 'base' argument
     """Factory for quick construction (useful in train.py)."""
-    return ImprovedUNet(in_channels=in_channels, num_classes=num_classes, base=base, p_drop=p_drop)
+    return ImprovedUNet(
+        in_channels=in_channels, num_classes=num_classes, p_drop=p_drop
+    )
 
 
 def count_params(model: nn.Module) -> int:
@@ -134,8 +150,12 @@ def count_params(model: nn.Module) -> int:
 
 if __name__ == "__main__":
     # Quick sanity check
-    net = create_model(in_channels=1, num_classes=4, base=64, p_drop=0.1)
+    net = create_model(in_channels=1, num_classes=4, p_drop=0.1) 
+
+    # MODIFIED: Test with 256x256 input
     x = torch.randn(2, 1, 256, 256)
     y = net(x)
-    print("Output:", tuple(y.shape))      # expected: (2, 4, 256, 256)
+
+    # MODIFIED: Expected output shape
+    print("Output:", tuple(y.shape))  # expected: (2, 6, 256, 256)
     print("Params:", count_params(net))
