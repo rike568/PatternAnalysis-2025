@@ -26,9 +26,11 @@ def set_seed(seed: int = 42) -> None:
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
+
 # ---------------------------
 # Tensor helpers
 # ---------------------------
+
 
 def to_device(
     batch: Dict[str, torch.Tensor], device: torch.device
@@ -50,6 +52,7 @@ def labels_to_onehot(y: torch.Tensor, num_classes: int) -> torch.Tensor:
     # y expected long dtype; ensure safety.
     y = y.long()
     return F.one_hot(y, num_classes=num_classes).permute(0, 3, 1, 2).float()
+
 
 # ---------------------------
 # Dice metrics / Dice loss
@@ -73,6 +76,7 @@ def dice_per_class_from_logits(
     den = (probs * probs).sum(dim=(0, 2, 3)) + (y_1h * y_1h).sum(dim=(0, 2, 3)) + eps
     return num / den
 
+
 def dice_loss_from_logits(
     logits: torch.Tensor, y_true_1h: torch.Tensor, eps: float = 1e-6
 ) -> torch.Tensor:
@@ -90,6 +94,7 @@ def dice_loss_from_logits(
     )
     dice = num / den
     return 1.0 - dice.mean()
+
 
 # ---------------------------
 # Combined loss (CE + Dice)
@@ -126,6 +131,7 @@ class CEDiceLoss(torch.nn.Module):
         loss_dice = dice_loss_from_logits(logits, y_1h)
         return self.alpha_ce * loss_ce + self.alpha_dice * loss_dice
 
+
 # ---------------------------
 # Running meters
 # ---------------------------
@@ -141,5 +147,41 @@ class AvgMeter:
     @property
     def avg(self) -> float:
         return self.total / max(self.count, 1)
-    
-    
+
+
+# ---------------------------
+# Checkpoint helpers
+# ---------------------------
+
+
+def save_checkpoint(
+    path: str,
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer | None = None,
+    epoch: int | None = None,
+    extra: Dict | None = None,
+) -> None:
+    """Save model state dict (and optional optimizer/epoch/extra) to path."""
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    state = {"model": model.state_dict()}
+    if optimizer is not None:
+        state["optimizer"] = optimizer.state_dict()
+    if epoch is not None:
+        state["epoch"] = epoch
+    if extra is not None:
+        state["extra"] = extra
+    torch.save(state, path)
+
+
+def load_checkpoint(
+    path: str,
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer | None = None,
+    map_location: str | torch.device = "cpu",
+) -> Dict:
+    """Load state dicts into model/optimizer; returns checkpoint dict."""
+    ckpt = torch.load(path, map_location=map_location)
+    model.load_state_dict(ckpt["model"])
+    if optimizer is not None and "optimizer" in ckpt:
+        optimizer.load_state_dict(ckpt["optimizer"])
+    return ckpt
