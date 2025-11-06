@@ -94,6 +94,7 @@ def overlay(
 # Main
 # ---------------------------
 
+
 @torch.no_grad()
 def main() -> None:
     print("==> OASIS 2D — Inference & Visualisation")
@@ -123,9 +124,38 @@ def main() -> None:
         )
 
     model.eval()
+
+    # Metrics over entire test set
+    dice_sum = torch.zeros(NUM_CLASSES, device=device)
+    n_batches = 0
+
     _ensure_dir(PRED_DIR)
 
-    # (Loop and metrics to be added)
+    for batch_idx, batch in enumerate(test_loader):
+        batch = to_device(batch, device)
+        x, y_raw = (
+            batch["image"],
+            batch["mask"],
+        )  # x: [B,1,256,256], y_raw: [B,256,256] with {0,85,170,255}
+        y_ids = oasis_mask_to_class_ids(y_raw)  # -> {0,1,2,3}
+
+        logits = model(x)
+        dice_c = dice_per_class_from_logits(logits, y_ids)  # [C]
+        dice_sum += dice_c
+        n_batches += 1
+
+        # (Visualisation logic to be added here)
+
+    # Report metrics
+    dice_mean_c = (dice_sum / max(n_batches, 1)).detach().cpu().numpy()
+    dice_mean = float(dice_mean_c.mean())
+    print(
+        "Per-class Dice:",
+        "  ".join([f"C{c}:{dice_mean_c[c]:.3f}" for c in range(NUM_CLASSES)]),
+    )
+    print(f"Mean Dice: {dice_mean:.3f}")
+
+    # (Preview grid logic to be added here)
 
 
 if __name__ == "__main__":
