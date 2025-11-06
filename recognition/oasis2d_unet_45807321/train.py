@@ -52,6 +52,56 @@ CURVES_PNG = OUTDIR / "curves.png"
 
 LOG_EVERY = 50  # steps
 
+# ---------------------------
+# Train / Val loops
+# ---------------------------
+
+
+def train_one_epoch(
+    model: nn.Module,
+    loader,
+    optimizer: optim.Optimizer,
+    criterion: nn.Module,
+    device: torch.device,
+    scaler: torch.amp.GradScaler | None,
+    epoch: int,
+) -> float:
+    model.train()
+    loss_meter = AvgMeter()
+
+    for step, batch in enumerate(loader, 1):
+        batch = to_device(batch, device)
+        x, y_raw = batch["image"], batch["mask"]
+        y_ids = oasis_mask_to_class_ids(y_raw)  # [B,H,W] in {0,1,2,3}
+
+        optimizer.zero_grad(set_to_none=True)
+
+        if scaler is not None:
+            with torch.amp.autocast("cuda"):
+                logits = model(x)  # [B,C,H,W]
+                loss = criterion(logits, y_ids)  # CE + Dice
+            scaler.scale(loss).backward()
+            if GRAD_CLIP_NORM > 0:
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), GRAD_CLIP_NORM)
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            logits = model(x)
+            loss = criterion(logits, y_ids)
+            loss.backward()
+            if GRAD_CLIP_NORM > 0:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), GRAD_CLIP_NORM)
+            optimizer.step()
+
+        loss_meter.update(loss.item(), n=x.size(0))
+
+        if step % LOG_EVERY == 0:
+            print(
+                f"Epoch {epoch:03d} | step {step:05d}/{len(loader):05d} | loss {loss_meter.avg:.4f}"
+            )
+
+    return loss_meter.avg
 
 # ---------------------------
 # Main
