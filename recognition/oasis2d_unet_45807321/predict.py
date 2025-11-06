@@ -194,7 +194,23 @@ def main() -> None:
     )
     print(f"Mean Dice: {dice_mean:.3f}")
 
-    # (Preview grid logic to be added here)
+    # Quick preview grid (uses last N_VIS saved overlays + GT/pred/input for the last batch portion)
+    if saved_paths:
+        fig, axes = plt.subplots(
+            nrows=min(N_VIS, 8), ncols=1, figsize=(6, 3 * min(N_VIS, 8))
+        )
+        if not isinstance(axes, np.ndarray):
+            axes = np.array([axes])
+        for ax, p in zip(axes, saved_paths[: len(axes)]):
+            ax.imshow(plt.imread(p))
+            ax.set_title(p.name)
+            ax.axis("off")
+        preview_path = PRED_DIR / "preview_overlays.png"
+        fig.tight_layout()
+        fig.savefig(preview_path, dpi=150)
+        plt.close(fig)
+        print(f"Saved {len(saved_paths)} sample overlays to: {PRED_DIR}")
+        print(f"Preview grid: {preview_path}")
 
 
 if __name__ == "__main__":
