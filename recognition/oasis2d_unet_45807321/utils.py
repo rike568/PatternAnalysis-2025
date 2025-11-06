@@ -148,11 +148,9 @@ class AvgMeter:
     def avg(self) -> float:
         return self.total / max(self.count, 1)
 
-
 # ---------------------------
 # Checkpoint helpers
 # ---------------------------
-
 
 def save_checkpoint(
     path: str,
@@ -185,3 +183,15 @@ def load_checkpoint(
     if optimizer is not None and "optimizer" in ckpt:
         optimizer.load_state_dict(ckpt["optimizer"])
     return ckpt
+
+# ---------------------------
+# OASIS-specific tiny helper
+# ---------------------------
+
+
+def oasis_mask_to_class_ids(y: torch.Tensor) -> torch.Tensor:
+    """
+    Map raw OASIS mask intensities {0,85,170,255} -> class ids {0,1,2,3}.
+    Assumes y is integer-like tensor [B,H,W].
+    """
+    return (y // 85).clamp(min=0, max=3).long()
