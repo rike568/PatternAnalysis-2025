@@ -259,7 +259,82 @@ def main() -> None:
     ).to(device)
     print(f"Model params: {count_params(model):,}")
 
-    # (Training loop to be added)
+    # Loss, Optim, Scheduler
+    # Change this line (around line 249):
+    criterion = CEDiceLoss(num_classes=NUM_CLASSES, alpha_ce=0.3, alpha_dice=0.7)
+
+    # <-- MODIFIED: Use args for lr and weight_decay -->
+    optimizer = optim.Adam(
+        model.parameters(), lr=args.lr, weight_decay=args.weight_decay
+    )
+    # ----------------------------------------------------
+
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode="min", factor=0.5, patience=3
+    )
+
+    best_val = float("inf")
+
+    # --- History for plots/CSV ---
+    history: List[Dict] = []
+
+    for epoch in range(1, EPOCHS + 1):
+        # <-- MODIFIED: Pass grad_clip_norm -->
+        train_loss = train_one_epoch(
+            model,
+            train_loader,
+            optimizer,
+            criterion,
+            device,
+            scaler,
+            epoch,
+            grad_clip_norm=args.grad_clip_norm,
+        )
+        # --------------------------------------
+
+        val_loss, dice_c = validate(model, val_loader, criterion, device)
+
+        # Logging
+        dice_str = " ".join([f"C{ci}:{d.item():.3f}" for ci, d in enumerate(dice_c)])
+        print(
+            f"[Epoch {epoch:03d}] train_loss={train_loss:.4f} | val_loss={val_loss:.4f} | dice({NUM_CLASSES}): {dice_str}"
+        )
+
+        # Record LR (first param group)
+        curr_lr = next(iter(optimizer.param_groups))["lr"]
+
+        # Save to history
+        rec = {
+            "epoch": epoch,
+            "train_loss": float(train_loss),
+            "val_loss": float(val_loss),
+            "lr": float(curr_lr),
+        }
+        for ci, d in enumerate(dice_c):
+            rec[f"dice_c{ci}"] = float(d.item())
+        history.append(rec)
+
+        # Scheduler on val loss
+        scheduler.step(val_loss)
+
+        # Checkpoints
+        save_checkpoint(
+            CKPT_LAST.as_posix(), model, optimizer, epoch, extra={"val_loss": val_loss}
+        )
+        if val_loss < best_val:
+            best_val = val_loss
+            save_checkpoint(
+                CKPT_BEST.as_posix(),
+                model,
+                optimizer,
+                epoch,
+                extra={"val_loss": val_loss},
+            )
+            print(f"  ↳ New best! Saved to {CKPT_BEST}")
+
+        # Update plots & CSV each epoch (so you can watch mid-run)
+        write_history_csv(history, HIST_CSV)
+        plot_curves(history, CURVES_PNG, NUM_CLASSES)
 
 
 if __name__ == "__main__":
