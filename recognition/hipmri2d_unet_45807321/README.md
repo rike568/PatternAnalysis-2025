@@ -6,8 +6,8 @@ This repository contains the code for a 2D U-Net model for 6-class segmentation 
 
 Here are the training curves and example predictions from a 20-epoch run with the default settings.
 
-![Training Curves](./outputs/curves.png)
-![Example Predictions](./outputs/preview_overlays.png)
+![Training Curves](./report_assets/curves.png)
+![Example Predictions](./report_assets/preview_overlays.png)
 
 _(Note: To make these images visible in your repo, you'll need to run the code once, then commit and push the `outputs/curves.png` and `outputs/preview_overlays.png` files.)_
 
@@ -82,14 +82,41 @@ hipmri2d_unet_45807321/
 
 With the `comp3710` environment active, you can run the training script. Checkpoints and results will be saved to the `outputs/` folder.
 
+**To train with default settings:**
+This will use the defaults set in the script (e.g., seed=42, lr=0.0005).
+
 ```bash
 python train.py
 ```
 
+**To train with custom hyperparameters:**
+You can override the default settings by providing command-line arguments.
+
+- `--seed`: Set the random seed (e.g., `--seed 123`).
+- `--lr`: Set the learning rate (e.g., `--lr 0.001`).
+- `--weight_decay`: Set the Adam weight decay (e.g., `--weight_decay 1e-5`).
+- `--grad_clip_norm`: Set the gradient clipping norm (e.g., `--grad_clip_norm 1.0`).
+
+**Example of a custom run:**
+This command trains with a learning rate of 0.001 and a seed of 123.
+
+```bash
+python train.py --lr 0.001 --seed 123
+```
+
 ### 5\. Run Predictions
 
-After training, you can run inference on the test set. This will load the `best.pt` checkpoint and save visual predictions to `outputs/predictions/`.
+After training, you can run inference on the test set. This will load the `best.pt` checkpoint from the `outputs/` folder, calculate final Dice scores, and save visual predictions to `outputs/predictions/`.
+
+**To run with the default seed (42):**
 
 ```bash
 python predict.py
+```
+
+**To run with a custom seed:**
+You can specify a different seed for reproducibility.
+
+```bash
+python predict.py --seed 123
 ```
