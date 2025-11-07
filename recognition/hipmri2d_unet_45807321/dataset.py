@@ -27,7 +27,6 @@ DEFAULT_DATA_ROOT = THIS_DIR / "HipMRI_Study_open"
 DEFAULT_IMG_SIZE = None
 DEFAULT_BATCH_SIZE = 64
 DEFAULT_NUM_WORKERS = 1
-# DEFAULT_NORMALIZE_MEANSTD = (0.5, 0.5) # No longer needed, using z-score
 
 # ---------------------------
 # Simple helpers
@@ -65,4 +64,75 @@ class HipMRI2DSegDataset(Dataset):
         keras_slices_seg_validate/
         keras_slices_seg_test/
     """
-    pass # To be implemented
+
+    def __init__(
+        self,
+        data_root: Path = DEFAULT_DATA_ROOT,
+        split: str = "train",
+        # normalize_meanstd: Optional[Tuple[float, float]] = None, # Removed
+        train_augment: bool = False,
+        max_rot_deg: float = 10.0,
+    ):
+        super().__init__()
+        self.data_root = Path(data_root)
+        assert split in {"train", "validate", "test"}  # enforce valid split names
+        self.split = split
+        # self.normalize_meanstd = normalize_meanstd # Removed
+
+        # Locate image/mask directories by split
+        img_dir = (
+            self.data_root
+            / f"keras_slices_{'validate' if split=='validate' else split}"
+        )
+        seg_dir = (
+            self.data_root
+            / f"keras_slices_seg_{'validate' if split=='validate' else split}"
+        )
+        if not (img_dir.exists() and seg_dir.exists()):
+            raise FileNotFoundError(
+                f"Missing expected HipMRI_Study_open folders:\n{img_dir}\n{seg_dir}"
+            )
+
+        # List files and build a mask index keyed by canonical names
+        images = sorted(
+            [p for p in img_dir.iterdir() if p.is_file() and ".nii" in p.name]
+        )
+        masks = sorted(
+            [p for p in seg_dir.iterdir() if p.is_file() and ".nii" in p.name]
+        )
+        mask_index: Dict[str, Path] = {_canonical_key(m): m for m in masks}
+
+        # Pair image with mask via canonical key
+        pairs: List[Tuple[Path, Path]] = []
+        missing: List[str] = []
+        for ip in images:
+            key = _canonical_key(ip)
+            mp = mask_index.get(key)
+            if mp is not None:
+                pairs.append((ip, mp))
+            else:
+                missing.append(f"{ip.name} (key: {key})")
+
+        if not pairs:
+            raise RuntimeError(
+                "No image/mask pairs found. Check prefixes or directory names.\n"
+                f"Example image: {images[0].name if images else 'None'}\n"
+                f"Example mask : {masks[0].name if masks else 'None'}"
+            )
+        if missing:
+            print(
+                f"[HipMRI] {len(missing)} images had no mask match (showing first 5): {missing[:5]}"
+            )
+
+        self.pairs = pairs
+        self.augment = None  # Placeholder for now
+
+    def __len__(self):
+        """Number of paired samples."""
+        return len(self.pairs)
+
+    # --- _normalize method removed ---
+
+    def __getitem__(self, idx: int):
+        """Load one (image, mask) pair; apply augments and preprocessing."""
+        pass  # To be implemented
