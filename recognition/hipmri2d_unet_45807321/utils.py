@@ -149,3 +149,39 @@ class AvgMeter:
     @property
     def avg(self) -> float:
         return self.total / max(self.count, 1)
+# ---------------------------
+# Checkpoint helpers
+# ---------------------------
+
+
+def save_checkpoint(
+    path: str,
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer | None = None,
+    epoch: int | None = None,
+    extra: Dict | None = None,
+) -> None:
+    """Save model state dict (and optional optimizer/epoch/extra) to path."""
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    state = {"model": model.state_dict()}
+    if optimizer is not None:
+        state["optimizer"] = optimizer.state_dict()
+    if epoch is not None:
+        state["epoch"] = epoch
+    if extra is not None:
+        state["extra"] = extra
+    torch.save(state, path)
+
+
+def load_checkpoint(
+    path: str,
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer | None = None,
+    map_location: str | torch.device = "cpu",
+) -> Dict:
+    """Load state dicts into model/optimizer; returns checkpoint dict."""
+    ckpt = torch.load(path, map_location=map_location)
+    model.load_state_dict(ckpt["model"])
+    if optimizer is not None and "optimizer" in ckpt:
+        optimizer.load_state_dict(ckpt["optimizer"])
+    return ckpt
