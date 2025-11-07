@@ -115,6 +115,7 @@ class _LocalizationModule(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.block(x)
 
+
 class _SegmentationLayer(nn.Module):
     """
     Corresponds to 'segmentation layer' in the diagram.
@@ -127,3 +128,76 @@ class _SegmentationLayer(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.conv(x)
+
+
+# ---------------------------------------------
+# The U-Net Model
+# ---------------------------------------------
+
+
+class ImprovedUNet(nn.Module):  # Keeping the name ImprovedUNet for compatibility
+    """
+    U-Net-style encoder–decoder with skip connections, based on the provided diagram.
+
+    Architecture:
+      - Encoder: Uses 'context modules' and '3x3 stride 2 convolutions' for downsampling.
+      - Bottleneck: A 'context module'.
+      - Decoder: Uses 'upsampling modules' and 'localization modules' with skip concatenations.
+      - Segmentation Layers: 1x1 convolutions at the end of each decoder stage and final output.
+
+    Notes:
+      - Designed for 1-channel 256x128 inputs.
+      - Output logits are returned without activation; apply softmax in loss/metrics if needed.
+    """
+
+    def __init__(self, in_channels: int = 1, num_classes: int = 6):
+        super().__init__()
+
+        # Encoder Path
+        self.context1 = _ContextModule(in_channels, 16)
+        self.down1 = _DownsamplingModule(16, 32)
+
+        self.context2 = _ContextModule(32, 32)
+        self.down2 = _DownsamplingModule(32, 64)
+
+        self.context3 = _ContextModule(64, 64)
+        self.down3 = _DownsamplingModule(64, 128)
+
+        self.context4 = _ContextModule(128, 128)
+        self.down4 = _DownsamplingModule(128, 256)
+
+        # Bottleneck (deepest context module)
+        self.bottleneck = _ContextModule(256, 256)
+
+        # Decoder Path
+        self.up4 = _UpsamplingModule(256, 128)
+        self.loc4 = _LocalizationModule(
+            128 + 128, 128
+        )  # Concatenates upsampled with context4 output
+        self.seg4 = _SegmentationLayer(128, num_classes)
+
+        self.up3 = _UpsamplingModule(128, 64)
+        self.loc3 = _LocalizationModule(
+            64 + 64, 64
+        )  # Concatenates upsampled with context3 output
+        self.seg3 = _SegmentationLayer(64, num_classes)
+
+        self.up2 = _UpsamplingModule(64, 32)
+        self.loc2 = _LocalizationModule(
+            32 + 32, 32
+        )  # Concatenates upsampled with context2 output
+        self.seg2 = _SegmentationLayer(32, num_classes)
+
+        self.up1 = _UpsamplingModule(32, 16)
+        self.loc1 = _LocalizationModule(
+            16 + 16, 16
+        )  # Concatenates upsampled with context1 output
+
+        # Final output segmentation layer
+        self.final_seg_layer = _SegmentationLayer(16, num_classes)
+
+        # Apply Kaiming initialization
+        self.apply(init_kaiming_normal_)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        pass  # To be implemented
