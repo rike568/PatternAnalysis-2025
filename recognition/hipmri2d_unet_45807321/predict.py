@@ -126,9 +126,44 @@ def main() -> None:
         )
 
     model.eval()
+
+    # Metrics over entire test set
+    dice_sum = torch.zeros(NUM_CLASSES, device=device)
+    n_batches = 0
+
     _ensure_dir(PRED_DIR)
 
-    # (Loop and metrics to be added)
+    # (Visualization logic to be added here)
+    saved_paths: List[Path] = []  # Added for later commit
+
+    for batch_idx, batch in enumerate(test_loader):
+        batch = to_device(batch, device)
+
+        # MODIFIED: Get masks directly. Shape is [B,1,256,128]
+        x, y_ids = (
+            batch["image"],
+            batch["mask"],
+        )  # y_ids: [B,256,128] with {0,1,2,3,4,5}
+
+        # y_ids = oasis_mask_to_class_ids(y_raw)  # No longer needed
+
+        logits = model(x)
+        dice_c = dice_per_class_from_logits(logits, y_ids)  # [C]
+        dice_sum += dice_c
+        n_batches += 1
+
+        # (Visualization logic to be added here)
+
+    # Report metrics
+    dice_mean_c = (dice_sum / max(n_batches, 1)).detach().cpu().numpy()
+    dice_mean = float(dice_mean_c.mean())
+    print(
+        "Per-class Dice:",
+        "  ".join([f"C{c}:{dice_mean_c[c]:.3f}" for c in range(NUM_CLASSES)]),
+    )
+    print(f"Mean Dice: {dice_mean:.3f}")
+
+    # (Preview grid logic to be added here)
 
 
 if __name__ == "__main__":
