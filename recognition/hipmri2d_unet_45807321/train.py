@@ -196,8 +196,70 @@ def plot_curves(history: List[Dict], png_path: Path, num_classes: int) -> None:
 
 
 def main() -> None:
+    # --- ADDED: Argument Parser ---
+    parser = argparse.ArgumentParser(description="HipMRI 2D U-Net Training")
+    parser.add_argument(
+        "--seed", type=int, default=SEED, help=f"Random seed (default: {SEED})"
+    )
+    parser.add_argument(
+        "--lr", type=float, default=LR, help=f"Learning rate (default: {LR})"
+    )
+    parser.add_argument(
+        "--weight_decay",
+        type=float,
+        default=WEIGHT_DECAY,
+        help=f"Adam weight decay (default: {WEIGHT_DECAY})",
+    )
+    parser.add_argument(
+        "--grad_clip_norm",
+        type=float,
+        default=GRAD_CLIP_NORM,
+        help=f"Gradient clipping norm, 0 to disable (default: {GRAD_CLIP_NORM})",
+    )
+    args = parser.parse_args()
+    # ---------------------------------
+
+    # MODIFIED: Changed print statement
     print("==> HipMRI 2D — Improved U-Net training")
-    # (Implementation to be added)
+
+    # --- ADDED: Print settings ---
+    print("==> Settings:")
+    print(f"  Seed: {args.seed}")
+    print(f"  LR: {args.lr}")
+    print(f"  Weight Decay: {args.weight_decay}")
+    print(f"  Grad Clip Norm: {args.grad_clip_norm}")
+    print(f"  Epochs: {EPOCHS}")
+    print(f"  Batch Size: {DEFAULT_BATCH_SIZE}")
+    print(f"  AMP: {AMP}")
+    print(f"  Output Dir: {OUTDIR.as_posix()}")
+    print("-" * 30)
+    # -----------------------------
+
+    # Repro
+    set_seed(args.seed)  # <-- MODIFIED: Use arg
+
+    # Device & AMP
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    scaler = torch.amp.GradScaler("cuda") if (AMP and device.type == "cuda") else None
+    print(f"Device: {device} | AMP: {scaler is not None}")
+
+    # Data
+    train_loader, val_loader, test_loader = make_loaders(
+        batch_size=DEFAULT_BATCH_SIZE,  # from dataset.py
+        # num_workers=1,  # uncomment on Rangpur to avoid worker warnings
+    )
+    print(
+        f"Train/Val/Test batches: {len(train_loader)}/{len(val_loader)}/{len(test_loader)}"
+    )
+
+    # Model
+    model = create_model(
+        in_channels=IN_CHANNELS,
+        num_classes=NUM_CLASSES,
+    ).to(device)
+    print(f"Model params: {count_params(model):,}")
+
+    # (Training loop to be added)
 
 
 if __name__ == "__main__":
