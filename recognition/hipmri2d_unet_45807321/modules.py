@@ -257,3 +257,21 @@ class ImprovedUNet(nn.Module):  # Keeping the name ImprovedUNet for compatibilit
         )
 
         return output
+
+
+# -----------------------------------------------------------------
+# --- Factory and Parameter Counter (for compatibility) ---
+# -----------------------------------------------------------------
+
+
+def create_model(
+    in_channels: int = 1,
+    num_classes: int = 6,  # Removed base and p_drop as they are not used by this architecture
+) -> ImprovedUNet:
+    """Factory for quick construction (useful in train.py)."""
+    return ImprovedUNet(in_channels=in_channels, num_classes=num_classes)
+
+
+def count_params(model: nn.Module) -> int:
+    """Return the number of trainable parameters (for logs/README)."""
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
