@@ -94,3 +94,37 @@ def dice_loss_from_logits(
     )
     dice = num / den
     return 1.0 - dice.mean()
+# ---------------------------
+# Combined loss (CE + Dice)
+# ---------------------------
+
+
+class CEDiceLoss(torch.nn.Module):
+    """
+    CE + Dice combined loss.
+    - alpha_ce: weight for CrossEntropy
+    - alpha_dice: weight for Dice (targets one-hot internally)
+    """
+
+    def __init__(
+        self,
+        num_classes: int,
+        alpha_ce: float = 0.5,
+        alpha_dice: float = 0.5,
+        ignore_index: int | None = None,
+    ):
+        super().__init__()
+        self.num_classes = num_classes
+        self.alpha_ce = alpha_ce
+        self.alpha_dice = alpha_dice
+        self.ignore_index = ignore_index
+
+    def forward(self, logits: torch.Tensor, y_true: torch.Tensor) -> torch.Tensor:
+        # y_true expected as class ids [B,H,W]
+        if self.ignore_index is None:
+            loss_ce = F.cross_entropy(logits, y_true)
+        else:
+            loss_ce = F.cross_entropy(logits, y_true, ignore_index=self.ignore_index)
+        y_1h = labels_to_onehot(y_true, num_classes=self.num_classes)
+        loss_dice = dice_loss_from_logits(logits, y_1h)
+        return self.alpha_ce * loss_ce + self.alpha_dice * loss_dice
