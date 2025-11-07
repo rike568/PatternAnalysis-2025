@@ -1,10 +1,11 @@
 # predict.py
-# Inference + visualisation for OASIS 2D segmentation (Improved U-Net)
+# Inference + visualisation for HipMRI 2D segmentation (Improved U-Net)
 
 from __future__ import annotations
 import os
 from pathlib import Path
 from typing import Tuple, List
+import argparse 
 
 import torch
 import matplotlib.pyplot as plt
@@ -13,7 +14,7 @@ import numpy as np
 from dataset import make_loaders
 from modules import create_model
 from utils import (
-    oasis_mask_to_class_ids,
+    # oasis_mask_to_class_ids, # No longer needed
     dice_per_class_from_logits,
     set_seed,
     to_device,
@@ -23,10 +24,9 @@ from utils import (
 # ---------------------------
 # Config
 # ---------------------------
-SEED = 42
-NUM_CLASSES = 4
+SEED = 42 
+NUM_CLASSES = 6
 IN_CHANNELS = 1
-P_DROP = 0.0
 
 OUTDIR = Path("./outputs")
 PRED_DIR = OUTDIR / "predictions"
@@ -48,7 +48,7 @@ def _ensure_dir(p: Path) -> None:
 def colorize(mask_ids: np.ndarray) -> np.ndarray:
     """
     Colorize class-id mask to RGB for saving/plotting.
-    Simple palette: background + 3 tissues.
+    Simple palette: background + 5 tissues.
     """
     palette = np.array(
         [
@@ -56,6 +56,8 @@ def colorize(mask_ids: np.ndarray) -> np.ndarray:
             [0, 114, 189],  # 1: blue
             [217, 83, 25],  # 2: orange
             [237, 177, 32],  # 3: yellow
+            [126, 47, 142],  # 4: purple (NEW)
+            [119, 172, 48],  # 5: green (NEW)
         ],
         dtype=np.uint8,
     )
@@ -71,10 +73,11 @@ def tensor_to_uint8_img(x: torch.Tensor) -> np.ndarray:
     x = x.detach().cpu().float()
     if x.ndim == 3 and x.size(0) == 1:
         x = x[0]
-    # Try to map from [-1,1] to [0,1] if necessary
+    # Try to map from z-score [-1,1] to [0,1] if necessary
     x_min, x_max = float(x.min()), float(x.max())
-    if x_min < 0.0 or x_max > 1.0:
-        x = (x + 1.0) / 2.0
+    if x_min < -0.1 or x_max > 1.1:  # Broadened range for z-score
+        # Assumes z-score norm, map roughly -2..2 to 0..1
+        x = (x + 2.0) / 4.0
     x = torch.clamp(x, 0.0, 1.0)
     return (x.numpy() * 255.0).astype(np.uint8)
 
@@ -97,8 +100,20 @@ def overlay(
 
 @torch.no_grad()
 def main() -> None:
-    print("==> OASIS 2D — Inference & Visualisation")
-    set_seed(SEED)
+    # --- ADDED: Argument Parser ---
+    parser = argparse.ArgumentParser(description="HipMRI 2D Inference")
+    parser.add_argument(
+        "--seed", type=int, default=SEED, help=f"Random seed (default: {SEED})"
+    )
+    args = parser.parse_args()
+    # ------------------------------
+
+    print("==> HipMRI 2D — Inference & Visualisation")
+
+    # --- MODIFIED: Use arg ---
+    set_seed(args.seed)
+    print(f"Seed: {args.seed}")
+    # -------------------------
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
@@ -110,7 +125,6 @@ def main() -> None:
     model = create_model(
         in_channels=IN_CHANNELS,
         num_classes=NUM_CLASSES,
-        p_drop=P_DROP,
     ).to(device)
     ckpt_path = CKPT_BEST if CKPT_BEST.exists() else CKPT_LAST
     if ckpt_path.exists():
@@ -133,22 +147,24 @@ def main() -> None:
 
     # Gather a few samples for visualisation
     vis_count = 0
-    saved_paths: List[Path] = []  # <-- ADD THIS
+    saved_paths: List[Path] = []
 
     for batch_idx, batch in enumerate(test_loader):
         batch = to_device(batch, device)
-        x, y_raw = (
+
+        # MODIFIED: Get masks directly. Shape is [B,1,256,128]
+        x, y_ids = (
             batch["image"],
             batch["mask"],
-        )  # x: [B,1,256,256], y_raw: [B,256,256] with {0,85,170,255}
-        y_ids = oasis_mask_to_class_ids(y_raw)  # -> {0,1,2,3}
+        )  # y_ids: [B,256,128] with {0,1,2,3,4,5}
+
+        # y_ids = oasis_mask_to_class_ids(y_raw)  # No longer needed
 
         logits = model(x)
         dice_c = dice_per_class_from_logits(logits, y_ids)  # [C]
         dice_sum += dice_c
         n_batches += 1
 
-        # --- ADD THIS BLOCK ---
         # Visualise/save a few samples from the first batches
         if vis_count < N_VIS:
             # How many to take from this batch
@@ -183,7 +199,6 @@ def main() -> None:
         if vis_count >= N_VIS:
             # still continue metric accumulation for full test set
             pass
-        # --- END OF BLOCK ---
 
     # Report metrics
     dice_mean_c = (dice_sum / max(n_batches, 1)).detach().cpu().numpy()
@@ -196,8 +211,9 @@ def main() -> None:
 
     # Quick preview grid (uses last N_VIS saved overlays + GT/pred/input for the last batch portion)
     if saved_paths:
+        # Adjusted figsize width to better fit 2:1 aspect ratio images
         fig, axes = plt.subplots(
-            nrows=min(N_VIS, 8), ncols=1, figsize=(6, 3 * min(N_VIS, 8))
+            nrows=min(N_VIS, 8), ncols=1, figsize=(4, 3 * min(N_VIS, 8))
         )
         if not isinstance(axes, np.ndarray):
             axes = np.array([axes])
