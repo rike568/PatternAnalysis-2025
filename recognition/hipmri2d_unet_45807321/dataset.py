@@ -135,4 +135,57 @@ class HipMRI2DSegDataset(Dataset):
 
     def __getitem__(self, idx: int):
         """Load one (image, mask) pair; apply augments and preprocessing."""
-        pass  # To be implemented
+        img_path, mask_path = self.pairs[idx]
+
+        # --- MODIFIED: Load Nifti files using logic from load_data_2D ---
+
+        # Load image
+        img = nib.load(img_path).get_fdata(caching="unchanged")
+        if len(img.shape) == 3:
+            img = img[:, :, 0]  # Take first slice
+        img = img.astype(np.float32)
+
+        # Load mask
+        mask = nib.load(mask_path).get_fdata(caching="unchanged")
+        if len(mask.shape) == 3:
+            mask = mask[:, :, 0]  # Take first slice
+
+        # Apply per-image z-score normalization (from load_data_2D)
+        mean = img.mean()
+        std = img.std()
+        img = (img - mean) / (std + 1e-8)  # Add epsilon for safety
+
+        # Convert to Tensors
+        # Add channel dim to image: [H,W] -> [1,H,W]
+        img_t = torch.from_numpy(img)[None, ...]
+        # Mask should be LongTensor: [H,W]
+        mask_t = torch.from_numpy(mask.astype(np.int64))
+
+        # --- Data already contains labels [0, 1, 2, 3, 4, 5] ---
+
+        # --- MODIFIED: Robust center-crop to (256, 128) ---
+        # This handles (256, 144), etc.
+        target_h, target_w = 256, 128
+        _, current_h, current_w = img_t.shape
+
+        if current_h == target_h and current_w > target_w:
+            # Image is correct height but too wide. Center-crop width.
+            crop_pixels = current_w - target_w
+            start_w = crop_pixels // 2
+            end_w = start_w + target_w
+
+            img_t = img_t[:, :, start_w:end_w]
+            mask_t = mask_t[:, start_w:end_w]
+
+        # Apply augmentation (now on Tensors)
+        if self.augment:
+            img_t, mask_t = self.augment(img_t, mask_t)
+
+        # self._normalize(img_t) call removed
+
+        return {
+            "image": img_t,
+            "mask": mask_t,
+            "image_path": str(img_path),
+            "mask_path": str(mask_path),
+        }
