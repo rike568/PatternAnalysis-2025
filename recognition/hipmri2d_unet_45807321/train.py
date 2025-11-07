@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import Tuple, Dict, List
-import argparse  # <-- ADDED
+import argparse
 import csv
 
 import torch
@@ -63,38 +63,54 @@ def train_one_epoch(
     device: torch.device,
     scaler: torch.amp.GradScaler | None,
     epoch: int,
-    grad_clip_norm: float,  # <-- MODIFIED: Added arg
+    grad_clip_norm: float,
 ) -> float:
+    """
+    Runs a single epoch of training.
+
+    Args:
+        model: The segmentation model to train.
+        loader: DataLoader for the training set.
+        optimizer: The optimizer (e.g., Adam).
+        criterion: The loss function (e.g., CEDiceLoss).
+        device: The device to train on (e.g., 'cuda').
+        scaler: Gradient scaler for mixed-precision training (AMP).
+        epoch: The current epoch number (for logging).
+        grad_clip_norm: The value for gradient clipping (0 to disable).
+
+    Returns:
+        The average training loss for the epoch.
+    """
     model.train()
     loss_meter = AvgMeter()
 
     for step, batch in enumerate(loader, 1):
         batch = to_device(batch, device)
-        # MODIFIED: Get masks directly
         x, y_ids = batch["image"], batch["mask"]
-        # y_ids = oasis_mask_to_class_ids(y_raw)  # No longer needed
 
         optimizer.zero_grad(set_to_none=True)
 
         if scaler is not None:
+            # Mixed precision training
             with torch.amp.autocast("cuda"):
-                logits = model(x)  # [B,C,H,W]
-                loss = criterion(logits, y_ids)  # CE + Dice
+                logits = model(x)
+                loss = criterion(logits, y_ids)
             scaler.scale(loss).backward()
-            if grad_clip_norm > 0:  # <-- MODIFIED: Use arg
+            if grad_clip_norm > 0:
                 scaler.unscale_(optimizer)
                 torch.nn.utils.clip_grad_norm_(
-                    model.parameters(), grad_clip_norm  # <-- MODIFIED: Use arg
+                    model.parameters(), grad_clip_norm
                 )
             scaler.step(optimizer)
             scaler.update()
         else:
+            # Standard precision training
             logits = model(x)
             loss = criterion(logits, y_ids)
             loss.backward()
-            if grad_clip_norm > 0:  # <-- MODIFIED: Use arg
+            if grad_clip_norm > 0:
                 torch.nn.utils.clip_grad_norm_(
-                    model.parameters(), grad_clip_norm  # <-- MODIFIED: Use arg
+                    model.parameters(), grad_clip_norm
                 )
             optimizer.step()
 
@@ -115,6 +131,20 @@ def validate(
     criterion: nn.Module,
     device: torch.device,
 ) -> Tuple[float, torch.Tensor]:
+    """
+    Runs validation on the given data loader.
+
+    Args:
+        model: The segmentation model to evaluate.
+        loader: DataLoader for the validation or test set.
+        criterion: The loss function.
+        device: The device to evaluate on.
+
+    Returns:
+        A tuple containing:
+        - The average validation loss.
+        - A 1D tensor of per-class Dice scores.
+    """
     model.eval()
 
     loss_meter = AvgMeter()
@@ -123,14 +153,13 @@ def validate(
 
     for batch in loader:
         batch = to_device(batch, device)
-        # MODIFIED: Get masks directly
         x, y_ids = batch["image"], batch["mask"]
-        # y_ids = oasis_mask_to_class_ids(y_raw) # No longer needed
 
         logits = model(x)
         loss = criterion(logits, y_ids)
         loss_meter.update(loss.item(), n=x.size(0))
 
+        # Calculate per-class dice
         dice_c = dice_per_class_from_logits(logits, y_ids)  # [C]
         dice_sum = dice_c if dice_sum is None else (dice_sum + dice_c)
         n_batches += 1
@@ -145,6 +174,13 @@ def validate(
 
 
 def write_history_csv(rows: List[Dict], path: Path) -> None:
+    """
+    Writes a list of metric dictionaries to a CSV file.
+
+    Args:
+        rows: A list of dictionaries, where each dict is one epoch's metrics.
+        path: The pathlib.Path object to write the CSV to.
+    """
     if not rows:
         return
     keys = list(rows[0].keys())
@@ -156,7 +192,14 @@ def write_history_csv(rows: List[Dict], path: Path) -> None:
 
 
 def plot_curves(history: List[Dict], png_path: Path, num_classes: int) -> None:
-    # history: list of dicts with keys epoch, train_loss, val_loss, dice_c0..c{C-1}
+    """
+    Plots training & validation loss and per-class Dice curves.
+
+    Args:
+        history: A list of metric dictionaries (one per epoch).
+        png_path: The pathlib.Path to save the plot image to.
+        num_classes: The number of classes to plot Dice scores for.
+    """
     epochs = [h["epoch"] for h in history]
     tr = [h["train_loss"] for h in history]
     vl = [h["val_loss"] for h in history]
@@ -196,6 +239,12 @@ def plot_curves(history: List[Dict], png_path: Path, num_classes: int) -> None:
 
 
 def main() -> None:
+    """
+    Main function to orchestrate the end-to-end training and evaluation process.
+    
+    Parses arguments, sets up the model, data, optimizer, and scheduler,
+    runs the training loop, and performs final evaluation.
+    """
     # --- ADDED: Argument Parser ---
     parser = argparse.ArgumentParser(description="HipMRI 2D U-Net Training")
     parser.add_argument(
@@ -219,7 +268,6 @@ def main() -> None:
     args = parser.parse_args()
     # ---------------------------------
 
-    # MODIFIED: Changed print statement
     print("==> HipMRI 2D — Improved U-Net training")
 
     # --- ADDED: Print settings ---
@@ -236,7 +284,7 @@ def main() -> None:
     # -----------------------------
 
     # Repro
-    set_seed(args.seed)  # <-- MODIFIED: Use arg
+    set_seed(args.seed)
 
     # Device & AMP
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -245,8 +293,7 @@ def main() -> None:
 
     # Data
     train_loader, val_loader, test_loader = make_loaders(
-        batch_size=DEFAULT_BATCH_SIZE,  # from dataset.py
-        # num_workers=1,  # uncomment on Rangpur to avoid worker warnings
+        batch_size=DEFAULT_BATCH_SIZE,
     )
     print(
         f"Train/Val/Test batches: {len(train_loader)}/{len(val_loader)}/{len(test_loader)}"
@@ -260,15 +307,10 @@ def main() -> None:
     print(f"Model params: {count_params(model):,}")
 
     # Loss, Optim, Scheduler
-    # Change this line (around line 249):
     criterion = CEDiceLoss(num_classes=NUM_CLASSES, alpha_ce=0.3, alpha_dice=0.7)
-
-    # <-- MODIFIED: Use args for lr and weight_decay -->
     optimizer = optim.Adam(
         model.parameters(), lr=args.lr, weight_decay=args.weight_decay
     )
-    # ----------------------------------------------------
-
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="min", factor=0.5, patience=3
     )
@@ -279,7 +321,6 @@ def main() -> None:
     history: List[Dict] = []
 
     for epoch in range(1, EPOCHS + 1):
-        # <-- MODIFIED: Pass grad_clip_norm -->
         train_loss = train_one_epoch(
             model,
             train_loader,
@@ -290,8 +331,6 @@ def main() -> None:
             epoch,
             grad_clip_norm=args.grad_clip_norm,
         )
-        # --------------------------------------
-
         val_loss, dice_c = validate(model, val_loader, criterion, device)
 
         # Logging
@@ -336,7 +375,7 @@ def main() -> None:
         write_history_csv(history, HIST_CSV)
         plot_curves(history, CURVES_PNG, NUM_CLASSES)
 
-        # Final test evaluation (optional, after best/last)
+    # Final test evaluation (optional, after best/last)
     print("==> Evaluating on test split (using last epoch weights)...")
     test_loss, test_dice_c = validate(model, test_loader, criterion, device)
     test_dice_str = " ".join(
@@ -349,12 +388,12 @@ def main() -> None:
         "epoch": EPOCHS + 1,
         "train_loss": float("nan"),
         "val_loss": float(test_loss),
-        "lr": float(curr_lr), # Note: curr_lr is from the last training epoch
+        "lr": float(curr_lr),
     }
     for ci, d in enumerate(test_dice_c):
         final_rec[f"dice_c{ci}"] = float(d.item())
     history.append(final_rec)
-    write_history_csv(history, HIST_CSV)  # overwrite with final row included
+    write_history_csv(history, HIST_CSV)
 
 
 if __name__ == "__main__":
