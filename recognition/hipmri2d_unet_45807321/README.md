@@ -1,6 +1,12 @@
 # HipMRI 2D Segmentation
 
+## About
+
 This repository contains the code for a 2D U-Net model for 6-class segmentation of HipMRI scans. The model uses a deep supervision architecture, and the code provides a full pipeline for training, evaluation, and visual inference.
+
+The problem that I have been tasked with is to create a model that can perform segmentation on the provided hip MRI dataset. More specifically, we are trying to outline the prostate gland so that professionals can more easily look for signs of prostate cancer. To do this, I have created an improved 2D U-Net model that was designed for the purpose of image segmentation, which is exactly what I'm required to do.
+
+How does this algorithm work? A normal 2D U-Net model works with the standard encoder, decoder, and skip connections. The improved 2D U-Net is similar; however, it just refines it further. For example, instead of utilizing Batch Normalization and ReLU, it instead uses Instance Normalization that will allow for more stable training. The below image shows an example of all the components that make up the 2D Improved U-Net model.
 
 ![Network Architecture](./report_assets/report_network.png)[1](#ref-1)
 
@@ -8,17 +14,38 @@ This repository contains the code for a 2D U-Net model for 6-class segmentation 
 
 Here are the training curves and example predictions from a 20-epoch run with the default settings.
 
+### Training Curves
+
 ![Training Curves](./report_assets/curves.png)
+
+The plot on the left showcase the train_loss and validation_loss over the 20 epochs that were ran. The plot on the right showcases the dice coeffeicent over the 20 epochs.
+
+## Outputs
+
+The below are simple images that were created after the prediciton was ran on the model that was created.
+
+It can be seen that the prediction isn't too far off from the ground truth, but there is still definitely room for improvement as it can bee seen that the model is still doing some underestimations.
+
+### Output 1
+
 ![Example Predictions 1](./report_assets/sample_000_00_combined.png)
+
+### Output 2
+
 ![Example Predictions 2](./report_assets/sample_000_01_combined.png)
+
+### Output 3
+
 ![Example Predictions 2](./report_assets/sample_000_02_combined.png)
 
 ### Dice coefficents
 
-Per-class Dice: C0:0.982  C1:0.984  C2:0.942  C3:0.970  C4:0.876  C5:0.839
+The below are the end dice coefficents that I had after the mdoel was trained.
+
+For the first 4 classes it can be seen that the dice coefficents are excellent, proably due to the fact that these features appear more overtly. For the last features my model still has decent dice coefficeints however, not as good as the first 4 probably due to the fact these features are a lot smaller, so are harder to pinpoint.
+
+Per-class Dice: C0:0.982 C1:0.984 C2:0.942 C3:0.970 C4:0.876 C5:0.839
 Mean Dice: 0.932
-
-
 
 ## 🚀 How to Run
 
@@ -127,6 +154,49 @@ You can specify a different seed for reproducibility.
 ```bash
 python predict.py --seed 123
 ```
+
+# 📦 Project Dependencies:
+
+This document outlines the software environment and dependencies required for the `comp3710` project, typically sourced from an `environment.yml` or similar configuration file.
+
+---
+
+## 🔗 Configuration Channels
+
+The following channels are used to locate and download packages:
+
+- **`pytorch`**: Primary channel for PyTorch-related packages, especially those built with specific CUDA versions.
+- **`defaults`**: The standard set of channels used by the package manager (e.g., Anaconda/Miniconda).
+
+---
+
+## 🐍 Core Dependencies (Conda)
+
+These packages are managed directly by the environment tool (Conda, in this case).
+
+- **`python=3.10`**: Specifies the required Python version.
+- **`pip`**: Ensures the `pip` package installer is available for managing secondary dependencies.
+
+---
+
+## ⚙️ Python Packages (Pip)
+
+These packages are installed using `pip`, often with specific build configurations.
+
+| Package Name      | Installation Source / Note                           | Description                                                                                                         |
+| :---------------- | :--------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------ |
+| **`torch`**       | `--index-url https://download.pytorch.org/whl/cu118` | The core **PyTorch** library, explicitly compiled for **CUDA 11.8** for GPU acceleration.                           |
+| **`torchvision`** | `--index-url https://download.pytorch.org/whl/cu118` | A package for computer vision, providing datasets, models, and image transformations, also built for **CUDA 11.8**. |
+| **`torchaudio`**  | `--index-url https://download.pytorch.org/whl/cu118` | A package for audio data, including data loading and transformations, also built for **CUDA 11.8**.                 |
+| **`matplotlib`**  | Standard PyPI                                        | A comprehensive library for creating static, animated, and interactive visualizations in Python.                    |
+| **`nibabel`**     | Standard PyPI                                        | Provides read/write access to common neuroimaging file formats (e.g., NIfTI, DICOM).                                |
+| **`tqdm`**        | Standard PyPI                                        | A fast, extensible progress bar for loops and iterables.                                                            |
+
+---
+
+## 🚀 Environment Summary
+
+This environment is specifically configured for deep learning tasks involving PyTorch, with a strong focus on GPU acceleration (CUDA 11.8), and includes specialized libraries for handling neuroimaging data (`nibabel`) and providing utility (`tqdm`, `matplotlib`).
 
 ## References
 
