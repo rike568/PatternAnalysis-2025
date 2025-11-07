@@ -108,6 +108,37 @@ def train_one_epoch(
     return loss_meter.avg
 
 
+@torch.no_grad()
+def validate(
+    model: nn.Module,
+    loader,
+    criterion: nn.Module,
+    device: torch.device,
+) -> Tuple[float, torch.Tensor]:
+    model.eval()
+
+    loss_meter = AvgMeter()
+    dice_sum = None
+    n_batches = 0
+
+    for batch in loader:
+        batch = to_device(batch, device)
+        # MODIFIED: Get masks directly
+        x, y_ids = batch["image"], batch["mask"]
+        # y_ids = oasis_mask_to_class_ids(y_raw) # No longer needed
+
+        logits = model(x)
+        loss = criterion(logits, y_ids)
+        loss_meter.update(loss.item(), n=x.size(0))
+
+        dice_c = dice_per_class_from_logits(logits, y_ids)  # [C]
+        dice_sum = dice_c if dice_sum is None else (dice_sum + dice_c)
+        n_batches += 1
+
+    dice_mean_c = dice_sum / max(n_batches, 1)  # [C]
+    return loss_meter.avg, dice_mean_c  # val_loss, per-class dice
+
+
 # ---------------------------
 # Main
 # ---------------------------
