@@ -2,6 +2,8 @@
 
 This repository contains the code for a 2D U-Net model for 6-class segmentation of HipMRI scans. The model uses a deep supervision architecture, and the code provides a full pipeline for training, evaluation, and visual inference.
 
+![Network Architecture](./report_assets/report_network.png)[1](#ref-1)
+
 ## 📊 Example Results
 
 Here are the training curves and example predictions from a 20-epoch run with the default settings.
@@ -10,6 +12,13 @@ Here are the training curves and example predictions from a 20-epoch run with th
 ![Example Predictions 1](./report_assets/sample_000_00_combined.png)
 ![Example Predictions 2](./report_assets/sample_000_01_combined.png)
 ![Example Predictions 2](./report_assets/sample_000_02_combined.png)
+
+### Dice coefficents
+
+Per-class Dice: C0:0.982  C1:0.984  C2:0.942  C3:0.970  C4:0.876  C5:0.839
+Mean Dice: 0.932
+
+
 
 ## 🚀 How to Run
 
@@ -118,3 +127,7 @@ You can specify a different seed for reproducibility.
 ```bash
 python predict.py --seed 123
 ```
+
+## References
+
+1. <a id="ref-1"></a>Isensee, F., Kickingereder, P., Wick, W., Bendszus, M., & Maier-Hein, K. H. (2018). _Brain Tumor Segmentation and Radiomics Survival Prediction: Contribution to the BRATS 2017 Challenge_. arXiv:1802.10508. Available: [https://arxiv.org/abs/1802.10508](https://arxiv.org/abs/1802.10508)
