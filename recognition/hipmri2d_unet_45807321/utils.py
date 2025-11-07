@@ -52,3 +52,45 @@ def labels_to_onehot(y: torch.Tensor, num_classes: int) -> torch.Tensor:
     # y expected long dtype; ensure safety.
     y = y.long()
     return F.one_hot(y, num_classes=num_classes).permute(0, 3, 1, 2).float()
+
+
+# ---------------------------
+# Dice metrics / Dice loss
+# ---------------------------
+
+
+@torch.no_grad()
+def dice_per_class_from_logits(
+    logits: torch.Tensor, y_true: torch.Tensor, eps: float = 1e-6
+) -> torch.Tensor:
+    """
+    Dice per class given logits and integer labels.
+    - logits: [B,C,H,W]
+    - y_true: [B,H,W] with class ids 0..C-1
+    Returns: [C] dice scores.
+    """
+    num_classes = logits.size(1)
+    probs = torch.softmax(logits, dim=1)  # [B,C,H,W]
+    y_1h = labels_to_onehot(y_true, num_classes)  # [B,C,H,W]
+    num = 2.0 * (probs * y_1h).sum(dim=(0, 2, 3))
+    den = (probs * probs).sum(dim=(0, 2, 3)) + (y_1h * y_1h).sum(dim=(0, 2, 3)) + eps
+    return num / den
+
+
+def dice_loss_from_logits(
+    logits: torch.Tensor, y_true_1h: torch.Tensor, eps: float = 1e-6
+) -> torch.Tensor:
+    """
+    Soft Dice loss using one-hot target.
+    - logits: [B,C,H,W]
+    - y_true_1h: [B,C,H,W]
+    """
+    probs = torch.softmax(logits, dim=1)
+    num = 2.0 * (probs * y_true_1h).sum(dim=(0, 2, 3))
+    den = (
+        (probs * probs).sum(dim=(0, 2, 3))
+        + (y_true_1h * y_true_1h).sum(dim=(0, 2, 3))
+        + eps
+    )
+    dice = num / den
+    return 1.0 - dice.mean()
