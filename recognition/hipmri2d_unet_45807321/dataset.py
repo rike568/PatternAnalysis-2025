@@ -230,3 +230,42 @@ class HipMRI2DSegDataset(Dataset):
             "image_path": str(img_path),
             "mask_path": str(mask_path),
         }
+
+
+def make_loaders(
+    data_root: Path = DEFAULT_DATA_ROOT,
+    batch_size: int = DEFAULT_BATCH_SIZE,
+    num_workers: int = DEFAULT_NUM_WORKERS,
+    # normalize_meanstd: Optional[Tuple[float, float]] = None, # Removed
+):
+    """
+    Convenience factory: returns (train_loader, val_loader, test_loader).
+    - Shuffles only the training loader.
+    - Leaves val/test deterministic.
+    """
+    train_ds = HipMRI2DSegDataset(data_root, "train", train_augment=True)
+    val_ds = HipMRI2DSegDataset(data_root, "validate")
+    test_ds = HipMRI2DSegDataset(data_root, "test")
+
+    train_loader = DataLoader(
+        train_ds,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
+    val_loader = DataLoader(
+        val_ds,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
+    test_loader = DataLoader(
+        test_ds,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
+    return train_loader, val_loader, test_loader
