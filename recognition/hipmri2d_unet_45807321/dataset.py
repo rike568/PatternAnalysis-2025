@@ -269,3 +269,83 @@ def make_loaders(
         pin_memory=True,
     )
     return train_loader, val_loader, test_loader
+
+
+if __name__ == "__main__":
+    # --- MODIFIED: Main block for shape and MASK VALUE verification ---
+    print(f"[HipMRI] Using data_root: {DEFAULT_DATA_ROOT}")
+    print("Running dataset shape verification...")
+
+    all_shapes = set()
+    all_mask_values = set()  # Check mask values
+
+    def check_dataset_shapes(name: str, dataset: HipMRI2DSegDataset):
+        print(f"\nChecking dataset: {name} ({len(dataset)} samples)")
+        shapes = set()
+        mask_vals = set()
+
+        # Wrap dataset iteration with tqdm for a progress bar
+        for i in tqdm(range(len(dataset)), desc=f"Scanning {name}"):
+            try:
+                # Use __getitem__ to load and process the data
+                sample = dataset[i]
+                img_shape = tuple(sample["image"].shape[1:])  # (H, W)
+                mask_shape = tuple(sample["mask"].shape)  # (H, W)
+
+                # Check mask values AFTER processing
+                mask_vals.update(torch.unique(sample["mask"]).numpy().tolist())
+
+                current_shape = img_shape
+
+                if img_shape != mask_shape:
+                    print(
+                        f"  WARNING: Mismatch! Img {dataset.pairs[i][0].name} is {img_shape}, Mask {dataset.pairs[i][1].name} is {mask_shape}"
+                    )
+
+                shapes.add(current_shape)
+
+            except Exception as e:
+                print(f"  ERROR loading sample {i} ({dataset.pairs[i][0].name}): {e}")
+
+        print(f"-> Found unique (H, W) shapes for {name}: {shapes}")
+        print(f"-> Found unique mask values for {name}: {sorted(list(mask_vals))}")
+        return shapes, mask_vals
+
+    # Instantiate datasets
+    try:
+        train_ds = HipMRI2DSegDataset(DEFAULT_DATA_ROOT, "train")
+        val_ds = HipMRI2DSegDataset(DEFAULT_DATA_ROOT, "validate")
+        test_ds = HipMRI2DSegDataset(DEFAULT_DATA_ROOT, "test")
+
+        train_shapes, train_mask_vals = check_dataset_shapes("train", train_ds)
+        val_shapes, val_mask_vals = check_dataset_shapes("validate", val_ds)
+        test_shapes, test_mask_vals = check_dataset_shapes("test", test_ds)
+
+        all_shapes.update(train_shapes)
+        all_shapes.update(val_shapes)
+        all_shapes.update(test_shapes)
+
+        all_mask_values.update(train_mask_vals)
+        all_mask_values.update(val_mask_vals)
+        all_mask_values.update(test_mask_vals)
+
+        print("\n========================================")
+        print(f"All unique (H, W) shapes found: {all_shapes}")
+        print(f"All unique mask values found: {sorted(list(all_mask_values))}")
+
+        # MODIFIED: Changed confirmation message to 256x128
+        if len(all_shapes) == 1 and (256, 128) in all_shapes:
+            print("Confirmation: All images are 256x128.")
+        else:
+            print("WARNING: Not all images are 256x128 or multiple sizes found.")
+
+        # --- FIX 3: Updated check for 6 classes ---
+        if all(v in [0, 1, 2, 3, 4, 5] for v in all_mask_values):
+            print("Confirmation: All mask values are valid (0, 1, 2, 3, 4, 5).")
+        else:
+            print("WARNING: Invalid mask values found! Check the list above.")
+        print("========================================")
+
+    except Exception as e:
+        print(f"\nFailed to initialize dataset. Check paths and folder names.")
+        print(f"Error: {e}")
