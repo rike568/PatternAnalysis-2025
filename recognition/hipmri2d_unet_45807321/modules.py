@@ -275,3 +275,25 @@ def create_model(
 def count_params(model: nn.Module) -> int:
     """Return the number of trainable parameters (for logs/README)."""
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
+# -----------------------------------------------------------------
+# --- Sanity Check ---
+# -----------------------------------------------------------------
+
+if __name__ == "__main__":
+    print("Testing the U-Net model based on diagram (2D adaptation)...")
+    net = create_model(in_channels=1, num_classes=6)
+
+    # Test with 256x128 input
+    x = torch.randn(2, 1, 256, 128)  # Batch size 2, 1 channel, 256x128
+    print(f"Input shape: {x.shape}")
+    y = net(x)
+
+    # Expected output shape: (batch_size, num_classes, 256, 128)
+    print(f"Output shape: {tuple(y.shape)}")
+    print(f"Model params: {count_params(net):,}")
+
+    expected_output_shape = (2, 6, 256, 128)
+    assert (
+        tuple(y.shape) == expected_output_shape
+    ), f"Output shape mismatch! Expected {expected_output_shape}, got {tuple(y.shape)}"
+    print("Output shape is correct!")
