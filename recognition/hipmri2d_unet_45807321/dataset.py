@@ -52,6 +52,43 @@ def _canonical_key(p: Path) -> str:
     return name
 
 
+class RandomAugment2D:
+    """Apply identical random flips/rotation to image and mask (train only)."""
+
+    def __init__(
+        self, max_rot_deg: float = 10.0, p_hflip: float = 0.5, p_vflip: float = 0.5
+    ):
+        self.max_rot_deg = max_rot_deg
+        self.p_hflip = p_hflip
+        self.p_vflip = p_vflip
+
+    def __call__(self, img: torch.Tensor, mask: torch.Tensor):
+        # Add channel dim to mask for transforms [H,W] -> [1,H,W]
+        mask = mask[None, ...]
+
+        # Horizontal flip
+        if random.random() < self.p_hflip:
+            img = F.hflip(img)
+            mask = F.hflip(mask)
+        # Vertical flip
+        if random.random() < self.p_vflip:
+            img = F.vflip(img)
+            mask = F.vflip(mask)
+        # Small random rotation; bilinear for image, nearest for mask (to preserve labels)
+        if self.max_rot_deg > 0:
+            angle = random.uniform(-self.max_rot_deg, self.max_rot_deg)
+            img = F.rotate(
+                img, angle, interpolation=F.InterpolationMode.BILINEAR, fill=0
+            )
+            # --- FIX 1: Corrected typo InterpolATIONMode -> InterpolationMode ---
+            mask = F.rotate(
+                mask, angle, interpolation=F.InterpolationMode.NEAREST, fill=0
+            )
+
+        # Remove channel dim from mask [1,H,W] -> [H,W]
+        return img, mask.squeeze(0)
+
+
 class HipMRI2DSegDataset(Dataset):
     """
     Dataset for HipMRI 2D Nifti slices.
@@ -125,7 +162,11 @@ class HipMRI2DSegDataset(Dataset):
             )
 
         self.pairs = pairs
-        self.augment = None  # Placeholder for now
+        self.augment = (
+            RandomAugment2D(max_rot_deg=max_rot_deg)
+            if train_augment and split == "train"
+            else None
+        )
 
     def __len__(self):
         """Number of paired samples."""
