@@ -101,7 +101,34 @@ def overlay(
 @torch.no_grad()
 def main() -> None:
     print("==> HipMRI 2D — Inference & Visualisation")
-    # (Implementation to be added)
+    set_seed(SEED)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Device: {device}")
+
+    # Data: only need test loader for predictions
+    _, _, test_loader = make_loaders()
+
+    # Model
+    model = create_model(
+        in_channels=IN_CHANNELS,
+        num_classes=NUM_CLASSES,
+    ).to(device)
+    ckpt_path = CKPT_BEST if CKPT_BEST.exists() else CKPT_LAST
+    if ckpt_path.exists():
+        load_checkpoint(
+            ckpt_path.as_posix(), model, optimizer=None, map_location=device
+        )
+        print(f"Loaded checkpoint: {ckpt_path}")
+    else:
+        print(
+            "⚠️ No checkpoint found — running with random-initialized weights (metrics will be poor)."
+        )
+
+    model.eval()
+    _ensure_dir(PRED_DIR)
+
+    # (Loop and metrics to be added)
 
 
 if __name__ == "__main__":
