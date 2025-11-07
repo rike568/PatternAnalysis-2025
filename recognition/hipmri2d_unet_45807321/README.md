@@ -7,11 +7,9 @@ This repository contains the code for a 2D U-Net model for 6-class segmentation 
 Here are the training curves and example predictions from a 20-epoch run with the default settings.
 
 ![Training Curves](./report_assets/curves.png)
-![Example Predictions](./report_assets/preview_overlays.png)
-
-_(Note: To make these images visible in your repo, you'll need to run the code once, then commit and push the `outputs/curves.png` and `outputs/preview_overlays.png` files.)_
-
----
+![Example Predictions 1](./report_assets/sample_000_00_combined.png)
+![Example Predictions 2](./report_assets/sample_000_01_combined.png)
+![Example Predictions 2](./report_assets/sample_000_02_combined.png)
 
 ## 🚀 How to Run
 
