@@ -200,4 +200,60 @@ class ImprovedUNet(nn.Module):  # Keeping the name ImprovedUNet for compatibilit
         self.apply(init_kaiming_normal_)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        pass  # To be implemented
+        # Encoder
+        # Level 1
+        x_c1 = self.context1(x)  # [B, 16, H, W]
+        x_d1 = self.down1(x_c1)  # [B, 32, H/2, W/2]
+
+        # Level 2
+        x_c2 = self.context2(x_d1)  # [B, 32, H/2, W/2]
+        x_d2 = self.down2(x_c2)  # [B, 64, H/4, W/4]
+
+        # Level 3
+        x_c3 = self.context3(x_d2)  # [B, 64, H/4, W/4]
+        x_d3 = self.down3(x_c3)  # [B, 128, H/8, W/8]
+
+        # Level 4
+        x_c4 = self.context4(x_d3)  # [B, 128, H/8, W/8]
+        x_d4 = self.down4(x_c4)  # [B, 256, H/16, W/16]
+
+        # Bottleneck
+        x_bottleneck = self.bottleneck(x_d4)  # [B, 256, H/16, W/16]
+
+        # Decoder
+        # Level 4 (decoding from bottleneck)
+        x_up4 = self.up4(x_bottleneck)  # [B, 128, H/8, W/8]
+        x_cat4 = torch.cat([x_up4, x_c4], dim=1)  # [B, 256, H/8, W/8]
+        x_loc4 = self.loc4(x_cat4)  # [B, 128, H/8, W/8]
+        s4 = self.seg4(x_loc4)  # [B, num_classes, H/8, W/8]
+
+        # Level 3
+        x_up3 = self.up3(x_loc4)  # [B, 64, H/4, W/4]
+        x_cat3 = torch.cat([x_up3, x_c3], dim=1)  # [B, 128, H/4, W/4]
+        x_loc3 = self.loc3(x_cat3)  # [B, 64, H/4, W/4]
+        s3 = self.seg3(x_loc3)  # [B, num_classes, H/4, W/4]
+
+        # Level 2
+        x_up2 = self.up2(x_loc3)  # [B, 32, H/2, W/2]
+        x_cat2 = torch.cat([x_up2, x_c2], dim=1)  # [B, 64, H/2, W/2]
+        x_loc2 = self.loc2(x_cat2)  # [B, 32, H/2, W/2]
+        s2 = self.seg2(x_loc2)  # [B, num_classes, H/2, W/2]
+
+        # Level 1
+        x_up1 = self.up1(x_loc2)  # [B, 16, H, W]
+        x_cat1 = torch.cat([x_up1, x_c1], dim=1)  # [B, 32, H, W]
+        x_loc1 = self.loc1(x_cat1)  # [B, 16, H, W]
+
+        # Final segmentation layer
+        s1 = self.final_seg_layer(x_loc1)  # [B, num_classes, H, W]
+
+        # Element-wise sum of segmentation layers (after upscaling s4, s3, s2 to s1's size)
+        # Note: F.interpolate is used for upscaling
+        output = (
+            s1
+            + F.interpolate(s2, scale_factor=2, mode="bilinear", align_corners=False)
+            + F.interpolate(s3, scale_factor=4, mode="bilinear", align_corners=False)
+            + F.interpolate(s4, scale_factor=8, mode="bilinear", align_corners=False)
+        )
+
+        return output
