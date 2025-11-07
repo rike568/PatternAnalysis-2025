@@ -336,6 +336,26 @@ def main() -> None:
         write_history_csv(history, HIST_CSV)
         plot_curves(history, CURVES_PNG, NUM_CLASSES)
 
+        # Final test evaluation (optional, after best/last)
+    print("==> Evaluating on test split (using last epoch weights)...")
+    test_loss, test_dice_c = validate(model, test_loader, criterion, device)
+    test_dice_str = " ".join(
+        [f"C{ci}:{d.item():.3f}" for ci, d in enumerate(test_dice_c)]
+    )
+    print(f"[Test] loss={test_loss:.4f} | dice({NUM_CLASSES}): {test_dice_str}")
+
+    # Append final test row to CSV (without plotting new points)
+    final_rec = {
+        "epoch": EPOCHS + 1,
+        "train_loss": float("nan"),
+        "val_loss": float(test_loss),
+        "lr": float(curr_lr), # Note: curr_lr is from the last training epoch
+    }
+    for ci, d in enumerate(test_dice_c):
+        final_rec[f"dice_c{ci}"] = float(d.item())
+    history.append(final_rec)
+    write_history_csv(history, HIST_CSV)  # overwrite with final row included
+
 
 if __name__ == "__main__":
     main()
