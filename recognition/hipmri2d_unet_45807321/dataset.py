@@ -34,10 +34,16 @@ DEFAULT_NUM_WORKERS = 1
 
 def _canonical_key(p: Path) -> str:
     """
-    Standardize filenames so image/mask match on the same key.
-    Example:
-      'case_001_slice_0.nii.gz' -> '001_slice_0'
-      'seg_001-slice_0.nii.gz'  -> '001_slice_0'
+    Standardizes a Nifti filename to create a canonical key for matching.
+
+    This allows 'case_001_slice_0.nii.gz' and 'seg_001-slice_0.nii.gz'
+    to both map to the same key '001_slice_0'.
+
+    Args:
+        p: The Path object to the file.
+
+    Returns:
+        A standardized string key.
     """
     name = p.stem.lower()
     if ".nii" in name:  # Handle double extensions like .nii.gz
@@ -52,16 +58,43 @@ def _canonical_key(p: Path) -> str:
 
 
 class RandomAugment2D:
-    """Apply identical random flips/rotation to image and mask (train only)."""
+    """
+    Apply identical random geometric augmentations to an image and mask tensor.
+
+    This is a callable class.
+    """
 
     def __init__(
         self, max_rot_deg: float = 10.0, p_hflip: float = 0.5, p_vflip: float = 0.5
     ):
+        """
+        Initializes the augmentation transform.
+
+        Args:
+            max_rot_deg: Maximum angle (in degrees) for random rotation.
+            p_hflip: Probability of a horizontal flip.
+            p_vflip: Probability of a vertical flip.
+        """
         self.max_rot_deg = max_rot_deg
         self.p_hflip = p_hflip
         self.p_vflip = p_vflip
 
-    def __call__(self, img: torch.Tensor, mask: torch.Tensor):
+    def __call__(
+        self, img: torch.Tensor, mask: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Applies the configured random augmentations to an image and mask.
+
+        Ensures that the same random transformation is applied to both inputs
+        and that 'NEAREST' interpolation is used for the mask.
+
+        Args:
+            img: The image tensor, expected shape [1, H, W].
+            mask: The mask tensor, expected shape [H, W].
+
+        Returns:
+            A tuple of (augmented_img, augmented_mask).
+        """
         # Add channel dim to mask for transforms [H,W] -> [1,H,W]
         mask = mask[None, ...]
 
@@ -79,7 +112,6 @@ class RandomAugment2D:
             img = F.rotate(
                 img, angle, interpolation=F.InterpolationMode.BILINEAR, fill=0
             )
-            # --- FIX 1: Corrected typo InterpolATIONMode -> InterpolationMode ---
             mask = F.rotate(
                 mask, angle, interpolation=F.InterpolationMode.NEAREST, fill=0
             )
@@ -90,7 +122,7 @@ class RandomAugment2D:
 
 class HipMRI2DSegDataset(Dataset):
     """
-    Dataset for HipMRI 2D Nifti slices.
+    A PyTorch Dataset for loading 2D Nifti slices from the HipMRI_Study_open dataset.
 
     Expected folder layout inside ./HipMRI_Study_open:
         keras_slices_train/
@@ -105,15 +137,26 @@ class HipMRI2DSegDataset(Dataset):
         self,
         data_root: Path = DEFAULT_DATA_ROOT,
         split: str = "train",
-        # normalize_meanstd: Optional[Tuple[float, float]] = None, # Removed
         train_augment: bool = False,
         max_rot_deg: float = 10.0,
     ):
+        """
+        Initializes the dataset.
+
+        This method scans the data directories, matches image and mask
+        files based on their canonical keys, and sets up the augmentation
+        pipeline for the training split.
+
+        Args:
+            data_root: The root directory of the 'HipMRI_Study_open' dataset.
+            split: The dataset split to load ("train", "validate", or "test").
+            train_augment: Whether to apply augmentations (only used if split="train").
+            max_rot_deg: Maximum rotation angle for augmentation.
+        """
         super().__init__()
         self.data_root = Path(data_root)
         assert split in {"train", "validate", "test"}  # enforce valid split names
         self.split = split
-        # self.normalize_meanstd = normalize_meanstd # Removed
 
         # Locate image/mask directories by split
         img_dir = (
@@ -167,17 +210,32 @@ class HipMRI2DSegDataset(Dataset):
             else None
         )
 
-    def __len__(self):
-        """Number of paired samples."""
+    def __len__(self) -> int:
+        """Returns the total number of paired samples in this split."""
         return len(self.pairs)
 
-    # --- _normalize method removed ---
+    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor | str]:
+        """
+        Loads and preprocesses a single image/mask pair.
 
-    def __getitem__(self, idx: int):
-        """Load one (image, mask) pair; apply augments and preprocessing."""
+        Steps:
+        1. Loads Nifti image and mask data.
+        2. Applies instance-wise z-score normalization to the image.
+        3. Converts both to PyTorch tensors.
+        4. Center-crops the pair to the target size (256, 128).
+        5. Applies augmentations if this is the training set.
+
+        Args:
+            idx: The index of the sample to retrieve.
+
+        Returns:
+            A dictionary containing:
+            - "image": The preprocessed image tensor [1, 256, 128].
+            - "mask": The preprocessed mask tensor [256, 128].
+            - "image_path": String path to the original image.
+            - "mask_path": String path to the original mask.
+        """
         img_path, mask_path = self.pairs[idx]
-
-        # --- MODIFIED: Load Nifti files using logic from load_data_2D ---
 
         # Load image
         img = nib.load(img_path).get_fdata(caching="unchanged")
@@ -190,21 +248,16 @@ class HipMRI2DSegDataset(Dataset):
         if len(mask.shape) == 3:
             mask = mask[:, :, 0]  # Take first slice
 
-        # Apply per-image z-score normalization (from load_data_2D)
+        # Apply per-image z-score normalization
         mean = img.mean()
         std = img.std()
         img = (img - mean) / (std + 1e-8)  # Add epsilon for safety
 
         # Convert to Tensors
-        # Add channel dim to image: [H,W] -> [1,H,W]
-        img_t = torch.from_numpy(img)[None, ...]
-        # Mask should be LongTensor: [H,W]
-        mask_t = torch.from_numpy(mask.astype(np.int64))
+        img_t = torch.from_numpy(img)[None, ...]  # [1, H, W]
+        mask_t = torch.from_numpy(mask.astype(np.int64))  # [H, W]
 
-        # --- Data already contains labels [0, 1, 2, 3, 4, 5] ---
-
-        # --- MODIFIED: Robust center-crop to (256, 128) ---
-        # This handles (256, 144), etc.
+        # Robust center-crop to (256, 128)
         target_h, target_w = 256, 128
         _, current_h, current_w = img_t.shape
 
@@ -221,8 +274,6 @@ class HipMRI2DSegDataset(Dataset):
         if self.augment:
             img_t, mask_t = self.augment(img_t, mask_t)
 
-        # self._normalize(img_t) call removed
-
         return {
             "image": img_t,
             "mask": mask_t,
@@ -235,12 +286,17 @@ def make_loaders(
     data_root: Path = DEFAULT_DATA_ROOT,
     batch_size: int = DEFAULT_BATCH_SIZE,
     num_workers: int = DEFAULT_NUM_WORKERS,
-    # normalize_meanstd: Optional[Tuple[float, float]] = None, # Removed
-):
+) -> Tuple[DataLoader, DataLoader, DataLoader]:
     """
-    Convenience factory: returns (train_loader, val_loader, test_loader).
-    - Shuffles only the training loader.
-    - Leaves val/test deterministic.
+    Creates and returns the train, validation, and test DataLoaders.
+
+    Args:
+        data_root: The root directory of the 'HipMRI_Study_open' dataset.
+        batch_size: The batch size for all loaders.
+        num_workers: The number of worker processes for data loading.
+
+    Returns:
+        A tuple of (train_loader, val_loader, test_loader).
     """
     train_ds = HipMRI2DSegDataset(data_root, "train", train_augment=True)
     val_ds = HipMRI2DSegDataset(data_root, "validate")
@@ -271,29 +327,43 @@ def make_loaders(
 
 
 if __name__ == "__main__":
-    # --- MODIFIED: Main block for shape and MASK VALUE verification ---
+    """
+    Runs a verification script when the dataset is executed directly.
+
+    This will scan all dataset splits and report on:
+    1. Total number of samples found.
+    2. Any image/mask shape mismatches.
+    3. All unique image shapes (H, W) found after processing.
+    4. All unique mask values (class labels) found.
+    """
     print(f"[HipMRI] Using data_root: {DEFAULT_DATA_ROOT}")
     print("Running dataset shape verification...")
 
     all_shapes = set()
-    all_mask_values = set()  # Check mask values
+    all_mask_values = set()
 
-    def check_dataset_shapes(name: str, dataset: HipMRI2DSegDataset):
+    def check_dataset_shapes(name: str, dataset: HipMRI2DSegDataset) -> Tuple[set, set]:
+        """
+        Scans a dataset split, checking and reporting shapes and mask values.
+
+        Args:
+            name: The name of the split (e.g., "train").
+            dataset: The HipMRI2DSegDataset instance to check.
+
+        Returns:
+            A tuple of (set_of_shapes, set_of_mask_values).
+        """
         print(f"\nChecking dataset: {name} ({len(dataset)} samples)")
         shapes = set()
         mask_vals = set()
 
-        # Wrap dataset iteration with tqdm for a progress bar
         for i in tqdm(range(len(dataset)), desc=f"Scanning {name}"):
             try:
-                # Use __getitem__ to load and process the data
                 sample = dataset[i]
                 img_shape = tuple(sample["image"].shape[1:])  # (H, W)
                 mask_shape = tuple(sample["mask"].shape)  # (H, W)
 
-                # Check mask values AFTER processing
                 mask_vals.update(torch.unique(sample["mask"]).numpy().tolist())
-
                 current_shape = img_shape
 
                 if img_shape != mask_shape:
@@ -310,7 +380,6 @@ if __name__ == "__main__":
         print(f"-> Found unique mask values for {name}: {sorted(list(mask_vals))}")
         return shapes, mask_vals
 
-    # Instantiate datasets
     try:
         train_ds = HipMRI2DSegDataset(DEFAULT_DATA_ROOT, "train")
         val_ds = HipMRI2DSegDataset(DEFAULT_DATA_ROOT, "validate")
@@ -332,13 +401,11 @@ if __name__ == "__main__":
         print(f"All unique (H, W) shapes found: {all_shapes}")
         print(f"All unique mask values found: {sorted(list(all_mask_values))}")
 
-        # MODIFIED: Changed confirmation message to 256x128
         if len(all_shapes) == 1 and (256, 128) in all_shapes:
             print("Confirmation: All images are 256x128.")
         else:
             print("WARNING: Not all images are 256x128 or multiple sizes found.")
 
-        # --- FIX 3: Updated check for 6 classes ---
         if all(v in [0, 1, 2, 3, 4, 5] for v in all_mask_values):
             print("Confirmation: All mask values are valid (0, 1, 2, 3, 4, 5).")
         else:
