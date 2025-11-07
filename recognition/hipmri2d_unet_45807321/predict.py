@@ -24,7 +24,7 @@ from utils import (
 # Config
 # ---------------------------
 SEED = 42
-NUM_CLASSES = 6  # MODIFIED: Changed from 4 to 6
+NUM_CLASSES = 6
 IN_CHANNELS = 1
 
 OUTDIR = Path("./outputs")
@@ -41,15 +41,25 @@ N_VIS = 8  # number of samples to visualise/save
 
 
 def _ensure_dir(p: Path) -> None:
+    """
+    Ensures that a directory exists, creating it if necessary.
+    
+    Args:
+        p: The pathlib.Path of the directory to check/create.
+    """
     p.mkdir(parents=True, exist_ok=True)
 
 
 def colorize(mask_ids: np.ndarray) -> np.ndarray:
     """
-    Colorize class-id mask to RGB for saving/plotting.
-    Simple palette: background + 5 tissues.
+    Maps a 2D array of class IDs to a 3D RGB color mask.
+
+    Args:
+        mask_ids: A 2D numpy array of integer class labels [H, W].
+
+    Returns:
+        A 3D numpy array (RGB image) [H, W, 3] of type uint8.
     """
-    # MODIFIED: Added 2 new colors for classes 4 and 5
     palette = np.array(
         [
             [0, 0, 0],  # 0: background - black
@@ -67,18 +77,28 @@ def colorize(mask_ids: np.ndarray) -> np.ndarray:
 
 def tensor_to_uint8_img(x: torch.Tensor) -> np.ndarray:
     """
-    x: [1,H,W] float in roughly [-1,1] or [0,1]
-    Convert to uint8 grayscale [H,W].
+    Converts a normalized image tensor to a uint8 grayscale image.
+    
+    Handles z-score normalized tensors by mapping a rough [-2, 2] range
+    to [0, 1] before scaling to [0, 255].
+
+    Args:
+        x: A [1, H, W] or [H, W] image tensor, typically z-score normalized.
+
+    Returns:
+        A 2D numpy array (grayscale image) [H, W] of type uint8.
     """
     x = x.detach().cpu().float()
     if x.ndim == 3 and x.size(0) == 1:
-        x = x[0]
-    # Try to map from z-score [-1,1] to [0,1] if necessary
+        x = x[0]  # Squeeze channel dim
+        
+    # Check if tensor is z-score normalized (values outside [0, 1])
     x_min, x_max = float(x.min()), float(x.max())
-    if x_min < -0.1 or x_max > 1.1:  # Broadened range for z-score
+    if x_min < -0.1 or x_max > 1.1:
         # Assumes z-score norm, map roughly -2..2 to 0..1
         x = (x + 2.0) / 4.0
-    x = torch.clamp(x, 0.0, 1.0)
+        
+    x = torch.clamp(x, 0.0, 1.0)  # Clamp to [0, 1] range
     return (x.numpy() * 255.0).astype(np.uint8)
 
 
@@ -86,9 +106,19 @@ def overlay(
     img_gray_u8: np.ndarray, mask_rgb: np.ndarray, alpha: float = 0.5
 ) -> np.ndarray:
     """
-    Overlay RGB mask on grayscale image.
+    Overlays a color RGB mask onto a grayscale image.
+
+    Args:
+        img_gray_u8: The base grayscale image [H, W] as uint8.
+        mask_rgb: The color mask [H, W, 3] as uint8.
+        alpha: The opacity of the mask (0.0 = transparent, 1.0 = opaque).
+
+    Returns:
+        A 3D numpy array (RGB image) [H, W, 3] of the blended overlay.
     """
+    # Convert grayscale to 3-channel RGB
     img_rgb = np.stack([img_gray_u8] * 3, axis=-1)
+    # Blend
     out = (img_rgb * (1 - alpha) + mask_rgb * alpha).astype(np.uint8)
     return out
 
@@ -100,6 +130,15 @@ def overlay(
 
 @torch.no_grad()
 def main() -> None:
+    """
+    Main function to run inference and visualization.
+    
+    - Loads the test dataset.
+    - Loads the best trained model checkpoint.
+    - Calculates and prints per-class Dice scores for the entire test set.
+    - Saves N_VIS sample visualizations (input, gt, pred, overlay) to disk.
+    - Creates a preview grid of the saved overlays.
+    """
     print("==> HipMRI 2D — Inference & Visualisation")
     set_seed(SEED)
 
@@ -114,6 +153,8 @@ def main() -> None:
         in_channels=IN_CHANNELS,
         num_classes=NUM_CLASSES,
     ).to(device)
+    
+    # Load best checkpoint
     ckpt_path = CKPT_BEST if CKPT_BEST.exists() else CKPT_LAST
     if ckpt_path.exists():
         load_checkpoint(
@@ -122,7 +163,7 @@ def main() -> None:
         print(f"Loaded checkpoint: {ckpt_path}")
     else:
         print(
-            "⚠️ No checkpoint found — running with random-initialized weights (metrics will be poor)."
+            "⚠️ No checkpoint found — running with random-initialized weights."
         )
 
     model.eval()
@@ -134,40 +175,38 @@ def main() -> None:
     _ensure_dir(PRED_DIR)
 
     vis_count = 0
-    saved_paths: List[Path] = []  # Added for later commit
-    # Gather a few samples for visualisation
+    saved_paths: List[Path] = []
+    
+    print(f"Running evaluation and saving {N_VIS} samples to {PRED_DIR}...")
     for batch_idx, batch in enumerate(test_loader):
         batch = to_device(batch, device)
+        x, y_ids = batch["image"], batch["mask"]
 
-        # MODIFIED: Get masks directly. Shape is [B,1,256,128]
-        x, y_ids = (
-            batch["image"],
-            batch["mask"],
-        )  # y_ids: [B,256,128] with {0,1,2,3,4,5}
-
-        # y_ids = oasis_mask_to_class_ids(y_raw)  # No longer needed
-
+        # Get model prediction
         logits = model(x)
-        dice_c = dice_per_class_from_logits(logits, y_ids)  # [C]
+        
+        # --- Metric Calculation ---
+        dice_c = dice_per_class_from_logits(logits, y_ids)
         dice_sum += dice_c
         n_batches += 1
 
-        # Visualise/save a few samples from the first batches
+        # --- Visualization Saving ---
         if vis_count < N_VIS:
-            # How many to take from this batch
-            take = min(N_VIS - vis_count, x.size(0))
+            take = min(N_VIS - vis_count, x.size(0))  # Num samples to take from this batch
             for i in range(take):
-                img_u8 = tensor_to_uint8_img(x[i])  # [H,W] uint8
-                pred_ids = (
-                    logits[i].argmax(dim=0).detach().cpu().numpy().astype(np.int32)
-                )  # [H,W]
-                gt_ids = y_ids[i].detach().cpu().numpy().astype(np.int32)
+                # Convert tensors to numpy images
+                img_u8 = tensor_to_uint8_img(x[i])
+                pred_ids = logits[i].argmax(dim=0).cpu().numpy().astype(np.int32)
+                gt_ids = y_ids[i].cpu().numpy().astype(np.int32)
 
-                pred_rgb = colorize(pred_ids)  # [H,W,3]
+                # Colorize masks
+                pred_rgb = colorize(pred_ids)
                 gt_rgb = colorize(gt_ids)
+                
+                # Create overlay
                 over_rgb = overlay(img_u8, pred_rgb, alpha=0.45)
 
-                # Save individual panels
+                # Save all 4 panels
                 base = Path(f"sample_{batch_idx:03d}_{i:02d}")
                 paths = {
                     "input": PRED_DIR / f"{base}_input.png",
@@ -179,16 +218,13 @@ def main() -> None:
                 plt.imsave(paths["gt"], gt_rgb)
                 plt.imsave(paths["pred"], pred_rgb)
                 plt.imsave(paths["over"], over_rgb)
+                
                 saved_paths.append(paths["over"])
                 vis_count += 1
 
-        # Early exit if we already have enough visualisations
-        if vis_count >= N_VIS:
-            # still continue metric accumulation for full test set
-            pass
-
-    # Report metrics
-    dice_mean_c = (dice_sum / max(n_batches, 1)).detach().cpu().numpy()
+    # --- Report final metrics ---
+    print("\n==> Test Metrics:")
+    dice_mean_c = (dice_sum / max(n_batches, 1)).cpu().numpy()
     dice_mean = float(dice_mean_c.mean())
     print(
         "Per-class Dice:",
@@ -196,24 +232,28 @@ def main() -> None:
     )
     print(f"Mean Dice: {dice_mean:.3f}")
 
-    # Quick preview grid (uses last N_VIS saved overlays + GT/pred/input for the last batch portion)
+    # --- Create preview grid ---
     if saved_paths:
-        # Adjusted figsize width to better fit 2:1 aspect ratio images
+        print(f"\nCreating preview grid at {PRED_DIR / 'preview_overlays.png'}...")
+        # Plot N_VIS images, but max 8 rows
+        n_rows = min(N_VIS, 8) 
         fig, axes = plt.subplots(
-            nrows=min(N_VIS, 8), ncols=1, figsize=(4, 3 * min(N_VIS, 8))
+            nrows=n_rows, ncols=1, figsize=(4, 3 * n_rows)
         )
         if not isinstance(axes, np.ndarray):
             axes = np.array([axes])
-        for ax, p in zip(axes, saved_paths[: len(axes)]):
+            
+        for ax, p in zip(axes.flat, saved_paths[:n_rows]):
             ax.imshow(plt.imread(p))
             ax.set_title(p.name)
             ax.axis("off")
+            
         preview_path = PRED_DIR / "preview_overlays.png"
         fig.tight_layout()
         fig.savefig(preview_path, dpi=150)
         plt.close(fig)
         print(f"Saved {len(saved_paths)} sample overlays to: {PRED_DIR}")
-        print(f"Preview grid: {preview_path}")
+        print(f"Preview grid saved: {preview_path}")
 
 
 if __name__ == "__main__":
