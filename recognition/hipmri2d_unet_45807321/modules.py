@@ -18,8 +18,13 @@ __all__ = [
 # Helper function for weight initialization
 def init_kaiming_normal_(m: nn.Module) -> None:
     """
-    He (Kaiming) init for conv/convtranspose; BatchNorm gamma=1, beta=0.
-    Call with model.apply(init_kaiming_normal_).
+    Applies He (Kaiming) initialization to Conv2d and ConvTranspose2d layers
+    and initializes BatchNorm2d layers.
+
+    Call with `model.apply(init_kaiming_normal_)`.
+
+    Args:
+        m: The module to initialize.
     """
     if isinstance(m, (nn.Conv2d, nn.ConvTranspose2d)):
         nn.init.kaiming_normal_(m.weight, nonlinearity="relu")
@@ -37,11 +42,20 @@ def init_kaiming_normal_(m: nn.Module) -> None:
 
 class _ContextModule(nn.Module):
     """
-    Corresponds to 'context module' in the diagram.
-    Two 3x3 Conv2d layers, each followed by BatchNorm and ReLU.
+    The 'context module' from the diagram.
+
+    A block consisting of two sequential 3x3 convolutions, each followed
+    by BatchNorm and ReLU. This block maintains the input resolution.
     """
 
     def __init__(self, in_channels: int, out_channels: int):
+        """
+        Initializes the context module.
+
+        Args:
+            in_channels: Number of input channels.
+            out_channels: Number of output channels.
+        """
         super().__init__()
         self.block = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
@@ -53,16 +67,34 @@ class _ContextModule(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Runs the forward pass for the context module.
+
+        Args:
+            x: Input tensor.
+
+        Returns:
+            Output tensor.
+        """
         return self.block(x)
 
 
 class _DownsamplingModule(nn.Module):
     """
-    Corresponds to '3x3x3 stride 2 convolution' in the diagram.
-    For 2D, this is a 3x3 Conv2d with stride 2.
+    The 'downsampling module' from the diagram (3x3 stride 2 convolution).
+
+    A 3x3 strided convolution block that halves the spatial dimensions (H, W)
+    and increases the channel count.
     """
 
     def __init__(self, in_channels: int, out_channels: int):
+        """
+        Initializes the downsampling module.
+
+        Args:
+            in_channels: Number of input channels.
+            out_channels: Number of output channels.
+        """
         super().__init__()
         self.conv = nn.Sequential(
             nn.Conv2d(
@@ -78,30 +110,67 @@ class _DownsamplingModule(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Runs the forward pass for the downsampling module.
+
+        Args:
+            x: Input tensor.
+
+        Returns:
+            Output tensor.
+        """
         return self.conv(x)
 
 
 class _UpsamplingModule(nn.Module):
     """
-    Corresponds to 'upsampling module' in the diagram.
-    ConvTranspose2d with kernel_size=2, stride=2.
+    The 'upsampling module' from the diagram.
+
+    A 2x2 transposed convolution that doubles the spatial dimensions (H, W)
+    and halves the channel count.
     """
 
     def __init__(self, in_channels: int, out_channels: int):
+        """
+        Initializes the upsampling module.
+
+        Args:
+            in_channels: Number of input channels.
+            out_channels: Number of output channels (typically in_channels // 2).
+        """
         super().__init__()
         self.up = nn.ConvTranspose2d(in_channels, out_channels, kernel_size=2, stride=2)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Runs the forward pass for the upsampling module.
+
+        Args:
+            x: Input tensor.
+
+        Returns:
+            Output tensor.
+        """
         return self.up(x)
 
 
 class _LocalizationModule(nn.Module):
     """
-    Corresponds to 'localization module' in the diagram.
-    Two 3x3 Conv2d layers, each followed by ReLU. BatchNorm is typically included.
+    The 'localization module' from the diagram, used in the decoder.
+
+    A block consisting of two sequential 3x3 convolutions, each followed
+    by BatchNorm and ReLU. This is structurally identical to the
+    _ContextModule but is used on the decoder path.
     """
 
     def __init__(self, in_channels: int, out_channels: int):
+        """
+        Initializes the localization module.
+
+        Args:
+            in_channels: Number of input channels (from concatenated skip + upsample).
+            out_channels: Number of output channels.
+        """
         super().__init__()
         self.block = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
@@ -113,20 +182,47 @@ class _LocalizationModule(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Runs the forward pass for the localization module.
+
+        Args:
+            x: Input tensor.
+
+        Returns:
+            Output tensor.
+        """
         return self.block(x)
 
 
 class _SegmentationLayer(nn.Module):
     """
-    Corresponds to 'segmentation layer' in the diagram.
-    A single 1x1 Conv2d.
+    The 'segmentation layer' from the diagram.
+
+    A single 1x1 convolution used to map feature channels to the final
+    number of classes.
     """
 
     def __init__(self, in_channels: int, out_channels: int):
+        """
+        Initializes the segmentation layer.
+
+        Args:
+            in_channels: Number of input feature channels.
+            out_channels: Number of output classes.
+        """
         super().__init__()
         self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Runs the forward pass for the segmentation layer.
+
+        Args:
+            x: Input tensor.
+
+        Returns:
+            Output tensor.
+        """
         return self.conv(x)
 
 
@@ -135,59 +231,69 @@ class _SegmentationLayer(nn.Module):
 # ---------------------------------------------
 
 
-class ImprovedUNet(nn.Module):  # Keeping the name ImprovedUNet for compatibility
+class ImprovedUNet(nn.Module):
     """
-    U-Net-style encoder–decoder with skip connections, based on the provided diagram.
+    The complete U-Net style model for HipMRI segmentation, based on the
+    provided architecture diagram.
 
-    Architecture:
-      - Encoder: Uses 'context modules' and '3x3 stride 2 convolutions' for downsampling.
-      - Bottleneck: A 'context module'.
-      - Decoder: Uses 'upsampling modules' and 'localization modules' with skip concatenations.
-      - Segmentation Layers: 1x1 convolutions at the end of each decoder stage and final output.
-
-    Notes:
-      - Designed for 1-channel 256x128 inputs.
-      - Output logits are returned without activation; apply softmax in loss/metrics if needed.
+    This model features an encoder-decoder structure with skip connections
+    and deep supervision, where segmentation maps from multiple decoder
+    levels are upscaled and summed for the final output.
     """
 
     def __init__(self, in_channels: int = 1, num_classes: int = 6):
+        """
+        Initializes the U-Net model.
+
+        Args:
+            in_channels: Number of input image channels (e.g., 1 for grayscale).
+            num_classes: Number of output segmentation classes.
+        """
         super().__init__()
 
-        # Encoder Path
+        # --- Encoder Path ---
+        # Level 1 (256x128)
         self.context1 = _ContextModule(in_channels, 16)
         self.down1 = _DownsamplingModule(16, 32)
 
+        # Level 2 (128x64)
         self.context2 = _ContextModule(32, 32)
         self.down2 = _DownsamplingModule(32, 64)
 
+        # Level 3 (64x32)
         self.context3 = _ContextModule(64, 64)
         self.down3 = _DownsamplingModule(64, 128)
 
+        # Level 4 (32x16)
         self.context4 = _ContextModule(128, 128)
         self.down4 = _DownsamplingModule(128, 256)
 
-        # Bottleneck (deepest context module)
+        # --- Bottleneck --- (16x8)
         self.bottleneck = _ContextModule(256, 256)
 
-        # Decoder Path
+        # --- Decoder Path ---
+        # Level 4 (32x16)
         self.up4 = _UpsamplingModule(256, 128)
         self.loc4 = _LocalizationModule(
             128 + 128, 128
         )  # Concatenates upsampled with context4 output
         self.seg4 = _SegmentationLayer(128, num_classes)
 
+        # Level 3 (64x32)
         self.up3 = _UpsamplingModule(128, 64)
         self.loc3 = _LocalizationModule(
             64 + 64, 64
         )  # Concatenates upsampled with context3 output
         self.seg3 = _SegmentationLayer(64, num_classes)
 
+        # Level 2 (128x64)
         self.up2 = _UpsamplingModule(64, 32)
         self.loc2 = _LocalizationModule(
             32 + 32, 32
         )  # Concatenates upsampled with context2 output
         self.seg2 = _SegmentationLayer(32, num_classes)
 
+        # Level 1 (256x128)
         self.up1 = _UpsamplingModule(32, 16)
         self.loc1 = _LocalizationModule(
             16 + 16, 16
@@ -200,6 +306,15 @@ class ImprovedUNet(nn.Module):  # Keeping the name ImprovedUNet for compatibilit
         self.apply(init_kaiming_normal_)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Runs the forward pass of the U-Net.
+
+        Args:
+            x: The input batch of images [B, C_in, H, W].
+
+        Returns:
+            The raw logits for each class [B, C_out, H, W].
+        """
         # Encoder
         # Level 1
         x_c1 = self.context1(x)  # [B, 16, H, W]
@@ -268,18 +383,43 @@ def create_model(
     in_channels: int = 1,
     num_classes: int = 6,  # Removed base and p_drop as they are not used by this architecture
 ) -> ImprovedUNet:
-    """Factory for quick construction (useful in train.py)."""
+    """
+    Factory function for quick construction of the ImprovedUNet model.
+
+    Args:
+        in_channels: Number of input image channels.
+        num_classes: Number of output segmentation classes.
+
+    Returns:
+        An instance of the ImprovedUNet model.
+    """
     return ImprovedUNet(in_channels=in_channels, num_classes=num_classes)
 
 
 def count_params(model: nn.Module) -> int:
-    """Return the number of trainable parameters (for logs/README)."""
+    """
+    Calculates the total number of trainable parameters in a model.
+
+    Args:
+        model: The PyTorch model (nn.Module).
+
+    Returns:
+        The integer count of trainable parameters.
+    """
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+
 # -----------------------------------------------------------------
 # --- Sanity Check ---
 # -----------------------------------------------------------------
 
 if __name__ == "__main__":
+    """
+    Runs a sanity check when the script is executed directly.
+
+    Creates a model, passes a dummy tensor, and asserts that the
+    output shape is correct.
+    """
     print("Testing the U-Net model based on diagram (2D adaptation)...")
     net = create_model(in_channels=1, num_classes=6)
 
