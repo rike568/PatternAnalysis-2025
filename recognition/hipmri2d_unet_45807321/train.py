@@ -22,7 +22,6 @@ from modules import create_model, count_params
 from utils import (
     set_seed,
     to_device,
-    # oasis_mask_to_class_ids, # No longer needed
     CEDiceLoss,
     dice_per_class_from_logits,
     AvgMeter,
@@ -50,6 +49,63 @@ HIST_CSV = OUTDIR / "history.csv"
 CURVES_PNG = OUTDIR / "curves.png"
 
 LOG_EVERY = 50  # steps
+
+# ---------------------------
+# Train / Val loops
+# ---------------------------
+
+
+def train_one_epoch(
+    model: nn.Module,
+    loader,
+    optimizer: optim.Optimizer,
+    criterion: nn.Module,
+    device: torch.device,
+    scaler: torch.amp.GradScaler | None,
+    epoch: int,
+    grad_clip_norm: float,  # <-- MODIFIED: Added arg
+) -> float:
+    model.train()
+    loss_meter = AvgMeter()
+
+    for step, batch in enumerate(loader, 1):
+        batch = to_device(batch, device)
+        # MODIFIED: Get masks directly
+        x, y_ids = batch["image"], batch["mask"]
+        # y_ids = oasis_mask_to_class_ids(y_raw)  # No longer needed
+
+        optimizer.zero_grad(set_to_none=True)
+
+        if scaler is not None:
+            with torch.amp.autocast("cuda"):
+                logits = model(x)  # [B,C,H,W]
+                loss = criterion(logits, y_ids)  # CE + Dice
+            scaler.scale(loss).backward()
+            if grad_clip_norm > 0:  # <-- MODIFIED: Use arg
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(
+                    model.parameters(), grad_clip_norm  # <-- MODIFIED: Use arg
+                )
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            logits = model(x)
+            loss = criterion(logits, y_ids)
+            loss.backward()
+            if grad_clip_norm > 0:  # <-- MODIFIED: Use arg
+                torch.nn.utils.clip_grad_norm_(
+                    model.parameters(), grad_clip_norm  # <-- MODIFIED: Use arg
+                )
+            optimizer.step()
+
+        loss_meter.update(loss.item(), n=x.size(0))
+
+        if step % LOG_EVERY == 0:
+            print(
+                f"Epoch {epoch:03d} | step {step:05d}/{len(loader):05d} | loss {loss_meter.avg:.4f}"
+            )
+
+    return loss_meter.avg
 
 
 # ---------------------------
