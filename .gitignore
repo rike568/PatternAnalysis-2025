@@ -1,2 +1,15 @@
 recognition/oasis2d_unet_45807321/OASIS
 recognition/hipmri2d_unet_45807321/HipMRI_Study_open
+recognition/predicts_hip
+recognition/predicts_oasis
+recognition/final_outputs
+recognition/final_outputs_hip
+recognition/hip_outputs
+recognition/brain_outputs
+recognition/oasis2d_unet_45807321/v2
+recognition/oasis2d_unet_45807321/v3
+recognition/oasis2d_unet_45807321/outputs
+recognition/oasis2d_unet_45807321/__pycache__
+recognition/hipmri2d_unet_45807321/__pycache__
+settings.json
+recognition/hipmri2d_unet_45807321/README.pdf
